@@ -1,0 +1,4 @@
+# Private data: never commit
+profile/
+sources.yaml
+.env

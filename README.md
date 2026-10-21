@@ -1,0 +1,1 @@
+Searching for and parsing job openings on company websites, and preparing a resume and cover letter for a selected vacancy.

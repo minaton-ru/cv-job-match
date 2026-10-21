@@ -1,0 +1,3 @@
+# Fetch a Vacancy's description once, and refresh it before Tailoring
+
+A Vacancy's full description is fetched only when the Vacancy is first discovered. Revisions are detected only from data in the Source's list response. Some changes to the description will go unnoticed, and that is deliberate. Revisions never trigger an Assessment, so very little depends on them. Detecting every change would mean fetching every description on every run, or fingerprint heuristics that can miss changes anyway. Instead, the description is fetched again right before Tailoring, which is the one place where outdated text would actually do harm.
