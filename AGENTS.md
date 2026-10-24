@@ -26,7 +26,7 @@
 - Write clear, short code without unnecessary complexity.
 - If logic repeats - extract it into helper functions.
 - Follow PEP 8 for formatting (99 characters per line, snake_case for functions/variables, PascalCase for classes, UPPER_SNAKE for constants).
-- Use descriptive, unambiguous names for variables. Use descriptive names that start with a verb for functions.
+- Use descriptive, unambiguous names for variables. Use descriptive names that start with a verb for functions. Functions and methods must consist of at least two words.
 - Type annotations - required everywhere, including `-> None`.
 - Write Google-style docstrings for every public function and method.
 - Do not add unused imports.
