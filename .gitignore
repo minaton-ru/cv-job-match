@@ -2,3 +2,11 @@
 profile/
 sources.yaml
 .env
+
+# Tooling
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.log
+*.log.*
