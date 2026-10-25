@@ -62,6 +62,8 @@ Each commit must be marked with a tag in square brackets at the beginning of the
 - `[assisted]` - the agent did the bulk of the work, but the developer rewrote a significant portion (logic, structure, >20% of lines)
 - `[manual]` - the code was written manually without the agent's assistance
 
+Each commit must include the Conventional Commits type after the tag so following such format `[tag] type: description`.
+
 ## Issue tracker
 
 Issues live in GitHub Issues for minaton-ru/cv-job-match, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
