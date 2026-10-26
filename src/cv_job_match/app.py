@@ -3,8 +3,11 @@
 import logging
 from dataclasses import dataclass
 
+from cv_job_match.adapters.json_endpoint import JsonEndpointAdapter
+from cv_job_match.discovery import Discovery, TechniqueAdapter
+from cv_job_match.http_client import HttpClient, create_polite_client
 from cv_job_match.settings import Settings
-from cv_job_match.sources import SourcesConfig, load_sources_config
+from cv_job_match.sources import SourcesConfig, Technique, load_sources_config
 from cv_job_match.utils.clock import Clock, SystemClock
 
 logger = logging.getLogger(__name__)
@@ -14,9 +17,9 @@ logger = logging.getLogger(__name__)
 class App:
     """The wired application.
 
-    The ``repos``, ``llm``, ``http`` and ``notifier`` dependencies are not
-    built yet. They stay ``None`` in production until the modules that use
-    them define their interfaces and production implementations.
+    The ``repos``, ``llm`` and ``notifier`` dependencies are not built yet.
+    They stay ``None`` in production until the modules that use them define
+    their interfaces and production implementations.
 
     Attributes:
         settings: Settings the app was built with.
@@ -26,15 +29,17 @@ class App:
         http: HTTP client for the careers sites.
         notifier: Sends messages to the Candidate.
         clock: Source of the current time.
+        discovery: Checks Sources for Vacancies.
     """
 
     settings: Settings
     sources: SourcesConfig
     repos: object | None
     llm: object | None
-    http: object | None
+    http: HttpClient
     notifier: object | None
     clock: Clock
+    discovery: Discovery
 
 
 def build_app(
@@ -42,7 +47,7 @@ def build_app(
     *,
     repos: object | None = None,
     llm: object | None = None,
-    http: object | None = None,
+    http: HttpClient | None = None,
     notifier: object | None = None,
     clock: Clock | None = None,
 ) -> App:
@@ -64,9 +69,12 @@ def build_app(
 
     Raises:
         SourcesConfigError: If the Sources config is missing or invalid.
+        HttpClientSetupError: If the extra root certificate cannot be loaded.
     """
     logger.info("Building app")
     sources = load_sources_config(settings.sources_path)
+    http = http or create_polite_client(settings, sources)
+    adapters: dict[Technique, TechniqueAdapter] = {"json_endpoint": JsonEndpointAdapter(http)}
     return App(
         settings=settings,
         sources=sources,
@@ -75,4 +83,5 @@ def build_app(
         http=http,
         notifier=notifier,
         clock=clock or SystemClock(),
+        discovery=Discovery(sources, adapters),
     )

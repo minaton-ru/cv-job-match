@@ -34,9 +34,12 @@ class Settings(BaseSettings):
     Attributes:
         sources_path: Path to the git-ignored Sources config file.
         log_level: Lowest level of the records written to the log file.
+        extra_ca_path: PEM file with the extra root certificate trusted for
+            the hosts of Sources with ``extra_ca: true``.
     """
 
     model_config = SettingsConfigDict(env_prefix="CV_JOB_MATCH_", env_file=".env", extra="ignore")
 
     sources_path: Path = Path("sources.yaml")
     log_level: LogLevel = "DEBUG"
+    extra_ca_path: Path | None = None
