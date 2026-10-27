@@ -30,11 +30,13 @@ class HttpRequest:
         url: Absolute URL, without the query parameters.
         method: HTTP method.
         params: Query parameters.
+        body: Body sent as JSON, or ``None`` for no body.
     """
 
     url: str
     method: str = "GET"
     params: Mapping[str, str] = field(default_factory=dict)
+    body: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -207,7 +209,13 @@ class PoliteHttpClient:
         """
         host = urlsplit(request.url).hostname or ""
         await self.wait_for_host_turn(host)
-        logger.debug("Sending %s %s params=%s", request.method, request.url, dict(request.params))
+        logger.debug(
+            "Sending %s %s params=%s body=%s",
+            request.method,
+            request.url,
+            dict(request.params),
+            request.body,
+        )
         transport = self.create_transport(self.choose_ssl_context(host))
         try:
             async with httpx.AsyncClient(
@@ -216,7 +224,7 @@ class PoliteHttpClient:
                 timeout=HTTP_TIMEOUT_S,
             ) as client:
                 response = await client.request(
-                    request.method, request.url, params=dict(request.params)
+                    request.method, request.url, params=dict(request.params), json=request.body
                 )
         except httpx.HTTPError as error:
             message = f"{request.method} {request.url} failed: {error!r}"

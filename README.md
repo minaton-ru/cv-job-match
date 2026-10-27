@@ -52,26 +52,49 @@ not set, a warning is logged and those hosts use the default bundle only.
 
 ### `json_endpoint` options
 
-The list is fetched with one GET request (pagination and POST are not supported yet; with
-`pagination` set, only the first page is read and a warning is logged). Paths are dotted, such
-as `data.items` or `tags.0`.
+Requests are GET by default. With `method: POST`, an optional `body` is sent as JSON; a `body`
+with GET is rejected. Paths are dotted, such as `data.items` or `tags.0`.
 
 ```yaml
     list:
       url: https://careers.example.com/api/jobs   # required
+      method: POST                  # optional; GET (default) or POST
       params: {q: python}           # optional query parameters
+      body: {query: {text: python}} # optional, POST only; sent as JSON
       items_path: data.items        # required; '' when the response is the list itself
       id_field: id                  # required; path to the site's own ID inside an item
       fields:                       # optional; field name -> path inside an item
         title: name
         url: link
+      pagination:                   # optional; without it, one page is read
+        style: page                 # page (page number) or offset (index of the first item)
+        param: page                 # query parameter for GET, top-level body key for POST
+        start: 1                    # optional; first value, default 1 for page and 0 for offset
+        size: 20                    # items per full page; required for offset
+        total_path: meta.total      # optional; path to the total number of items
+        max_pages: 100              # optional; default 100
     detail:                         # optional; without it, no description is fetched
       url: https://careers.example.com/api/jobs/{id}   # {id} is the Vacancy's ID
+      method: GET                   # optional; GET (default) or POST
       params: {lang: en}            # optional; {id} is replaced in values too
+      body: {job: {ref: '{id}'}}    # optional, POST only; {id} is replaced in every text
       description_fields: [body.summary, body.duties]  # joined by blank lines
 ```
 
-An item without an ID makes the whole list fetch fail, so the run is reported as suspect.
+`{id}` must appear in the detail `url`, or in a value of `params` or `body`, so a fixed
+description endpoint such as `https://careers.example.com/api/job-details` works with the ID in
+its body.
+
+Pages are read one after another, and reading stops after the first page that is empty, holds
+fewer than `size` items, or brings the count up to the number at `total_path`. The pagination
+`param` must not also be set in `params` (GET) or `body` (POST). Invalid options or combinations
+are reported when the Source is checked, with the Source and the problem named.
+
+A failure on any page (network error, non-2xx status, malformed JSON, a missing items path, an
+item without an ID, or a `total_path` that does not hold a number) makes the whole list fetch
+fail, so no partial list is used and the run is reported as suspect. So does a list with more
+than `max_pages` pages; after `max_pages` full pages, one more page is fetched to check that it
+is empty. Without `size` and `total_path`, only an empty page ends the list.
 
 ## Run
 
@@ -85,8 +108,8 @@ Every command exits with code 3 when the Sources config is invalid and prints th
 
 `check-source <source id>` fetches the Source's list and the descriptions of the first three
 Vacancies, then prints how many Vacancies it found, a preview of those three, and the suspect
-reason when the list fetch failed (network error, non-2xx status, malformed JSON, or a missing
-items path or ID). Nothing is saved. Switched-off Sources can be checked too. It exits with:
+reason when the list fetch failed on any page (see the `json_endpoint` options above). Nothing
+is saved. Switched-off Sources can be checked too. It exits with:
 
 | Code | Meaning                                                        |
 | ---- | -------------------------------------------------------------- |

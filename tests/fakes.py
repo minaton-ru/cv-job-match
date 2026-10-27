@@ -132,16 +132,23 @@ class FakeTimer:
         self.now += seconds
 
 
+CannedAnswer = HttpResponse | Exception
+
+
 class FakeHttpClient:
     """HTTP client with canned responses or errors per URL and a request log."""
 
-    def __init__(self, responses: Mapping[str, HttpResponse | Exception]) -> None:
+    def __init__(self, responses: Mapping[str, CannedAnswer | list[CannedAnswer]]) -> None:
         """Create the client.
 
         Args:
-            responses: What each URL answers with: a response, or an error to raise.
+            responses: What each URL answers with: a response, or an error to
+                raise. A list answers successive requests to the URL in order.
         """
-        self.responses = responses
+        self.responses = {
+            url: list(answer) if isinstance(answer, list) else answer
+            for url, answer in responses.items()
+        }
         self.requests: list[HttpRequest] = []
 
     async def send_request(self, request: HttpRequest) -> HttpResponse:
@@ -154,11 +161,13 @@ class FakeHttpClient:
             The canned response for the request's URL.
 
         Raises:
-            HttpRequestError: If the URL has no canned answer.
+            HttpRequestError: If the URL has no canned answer left.
             Exception: The canned error for the URL.
         """
         self.requests.append(request)
         answer = self.responses.get(request.url)
+        if isinstance(answer, list):
+            answer = answer.pop(0) if answer else None
         if answer is None:
             raise HttpRequestError(f"no canned response for {request.url}")
         if isinstance(answer, Exception):
