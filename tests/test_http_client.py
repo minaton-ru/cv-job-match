@@ -132,6 +132,35 @@ async def test_polite_client_sends_browser_user_agent() -> None:
     assert request.headers["User-Agent"].startswith("Mozilla/5.0")
 
 
+@pytest.mark.parametrize(
+    ("method", "body", "expected_content", "expected_type"),
+    [
+        (
+            "POST",
+            {"query": {"text": "python"}, "page": 1},
+            b'{"query":{"text":"python"},"page":1}',
+            "application/json",
+        ),
+        ("GET", None, b"", None),
+    ],
+    ids=["post-with-body", "get-without-body"],
+)
+async def test_polite_client_sends_json_body(
+    method: str, body: dict[str, object] | None, expected_content: bytes, expected_type: str | None
+) -> None:
+    transports = FakeTransportFactory()
+    client = build_polite_client(transports, FakeTimer())
+
+    await client.send_request(
+        HttpRequest(url="https://psi.example/jobs", method=method, body=body)
+    )
+
+    request, _ = transports.sent[0]
+    assert request.method == method
+    assert request.content.replace(b" ", b"") == expected_content
+    assert request.headers.get("Content-Type") == expected_type
+
+
 async def test_polite_client_waits_between_requests_to_same_host() -> None:
     timer = FakeTimer()
     client = build_polite_client(FakeTransportFactory(), timer)

@@ -15,6 +15,7 @@ from pydantic import (
     ValidationError,
     model_validator,
 )
+from pydantic_core import ErrorDetails
 
 from cv_job_match.constants import DURATION_PATTERN, DURATION_UNITS, TECHNIQUE_OPTION_KEYS
 from cv_job_match.exceptions import SourcesConfigError
@@ -241,12 +242,24 @@ def describe_validation_errors(error: ValidationError, data: dict[str, Any]) -> 
     """
     problems = []
     for detail in error.errors():
-        problem = str(detail["ctx"]["error"]) if detail["type"] == "value_error" else detail["msg"]
+        problem = describe_error_detail(detail)
         if isinstance(detail.get("input"), str | int | float | bool):
             problem = f"{problem} (got {detail['input']!r})"
         place = name_error_location(detail["loc"], data)
         problems.append(f"{place}: {problem}" if place else problem)
     return "; ".join(problems)
+
+
+def describe_error_detail(detail: ErrorDetails) -> str:
+    """Describe one pydantic error without its type prefix.
+
+    Args:
+        detail: One entry of ``ValidationError.errors()``.
+
+    Returns:
+        The message of a raised ``ValueError`` as is, or pydantic's own message.
+    """
+    return str(detail["ctx"]["error"]) if detail["type"] == "value_error" else detail["msg"]
 
 
 def name_error_location(location: tuple[int | str, ...], data: dict[str, Any]) -> str:
