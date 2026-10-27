@@ -2,31 +2,28 @@
 
 import json
 import logging
-from typing import Literal, NoReturn, Self
+from typing import Literal, Self
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    PositiveInt,
-    ValidationError,
-    model_validator,
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
+
+from cv_job_match.adapters.common import (
+    JsonItemsOptions,
+    QueryParams,
+    fail_source_fetch,
+    fill_vacancy_id,
+    format_query_params,
+    parse_technique_options,
+    read_json_path,
+    read_list_items,
+    read_listed_vacancy,
+    send_checked_request,
 )
-
 from cv_job_match.constants import DEFAULT_MAX_PAGES
 from cv_job_match.discovery import ListedVacancy
-from cv_job_match.exceptions import HttpRequestError, SourceFetchError, SourcesConfigError
 from cv_job_match.http_client import HttpClient, HttpRequest
-from cv_job_match.sources import (
-    RequiredText,
-    SourceConfig,
-    describe_error_detail,
-    join_location_parts,
-)
+from cv_job_match.sources import RequiredText, SourceConfig
 
 logger = logging.getLogger(__name__)
-
-QueryParams = dict[str, str | int | float]
 
 
 class JsonRequestOptions(BaseModel):
@@ -116,19 +113,13 @@ class PaginationOptions(BaseModel):
         return (1 if self.start is None else self.start) + page_index
 
 
-class JsonListOptions(JsonRequestOptions):
+class JsonListOptions(JsonRequestOptions, JsonItemsOptions):
     """How to fetch and read a Source's list.
 
     Attributes:
-        items_path: Dotted path to the list of items, empty for the top level.
-        id_field: Dotted path, inside an item, to the site's own ID.
-        fields: Field name to dotted path inside an item, such as ``title``.
         pagination: Pagination settings, or ``None`` for a single page.
     """
 
-    items_path: str
-    id_field: RequiredText
-    fields: dict[str, RequiredText] = Field(default_factory=dict)
     pagination: PaginationOptions | None = None
 
     @model_validator(mode="after")
@@ -228,7 +219,7 @@ class JsonEndpointAdapter:
                 ``max_pages`` pages.
             SourcesConfigError: If the Source's options are invalid.
         """
-        options = parse_json_endpoint_options(source).list_options
+        options = parse_technique_options(source, JsonEndpointOptions).list_options
         pagination = options.pagination
         page_limit = pagination.max_pages if pagination else 1
         vacancies: list[ListedVacancy] = []
@@ -264,7 +255,7 @@ class JsonEndpointAdapter:
                 its fields is present.
             SourcesConfigError: If the Source's options are invalid.
         """
-        options = parse_json_endpoint_options(source).detail_options
+        options = parse_technique_options(source, JsonEndpointOptions).detail_options
         if options is None:
             return None
         request = HttpRequest(
@@ -299,41 +290,11 @@ class JsonEndpointAdapter:
             SourceFetchError: On a network error, a non-2xx status or a body
                 that is not JSON.
         """
+        text = await send_checked_request(self.http, source, request)
         try:
-            response = await self.http.send_request(request)
-        except HttpRequestError as error:
-            fail_source_fetch(source, f"request failed: {error}")
-        if not 200 <= response.status_code < 300:
-            fail_source_fetch(source, f"HTTP {response.status_code} from {request.url}")
-        try:
-            return json.loads(response.text)
+            return json.loads(text)
         except ValueError:
             fail_source_fetch(source, f"malformed JSON from {request.url}")
-
-
-def parse_json_endpoint_options(source: SourceConfig) -> JsonEndpointOptions:
-    """Validate a Source's ``json_endpoint`` options.
-
-    Args:
-        source: The Source.
-
-    Returns:
-        The validated options.
-
-    Raises:
-        SourcesConfigError: If the options are invalid. The message names the
-            Source and the problem.
-    """
-    try:
-        return JsonEndpointOptions.model_validate(source.options)
-    except ValidationError as error:
-        problems = "; ".join(
-            f"{join_location_parts(detail['loc'])}: {describe_error_detail(detail)}"
-            for detail in error.errors()
-        )
-        message = f"Invalid Sources config: Source {source.id!r}: {problems}"
-        logger.error(message)
-        raise SourcesConfigError(message) from error
 
 
 def build_list_request(options: JsonListOptions, page_index: int) -> HttpRequest:
@@ -356,28 +317,6 @@ def build_list_request(options: JsonListOptions, page_index: int) -> HttpRequest
         else:
             params = {**params, pagination.param: str(value)}
     return HttpRequest(url=options.url, method=options.method, params=params, body=body)
-
-
-def read_list_items(
-    source: SourceConfig, options: JsonListOptions, payload: object
-) -> list[object]:
-    """Read the items of one list page.
-
-    Args:
-        source: The Source the page comes from.
-        options: The Source's list options.
-        payload: The parsed page.
-
-    Returns:
-        The page's items.
-
-    Raises:
-        SourceFetchError: If the items path does not hold a list.
-    """
-    items = read_json_path(payload, options.items_path)
-    if not isinstance(items, list):
-        fail_source_fetch(source, f"items path {options.items_path!r} does not hold a list")
-    return items
 
 
 def is_last_page(
@@ -415,79 +354,6 @@ def is_last_page(
     return read_count >= total
 
 
-def read_listed_vacancy(
-    source: SourceConfig, options: JsonListOptions, item: object
-) -> ListedVacancy:
-    """Read one list item into a listed Vacancy.
-
-    Args:
-        source: The Source the item comes from.
-        options: The Source's list options.
-        item: One item of the list.
-
-    Returns:
-        The listed Vacancy.
-
-    Raises:
-        SourceFetchError: If the item has no ID, or its ID is blank.
-    """
-    vacancy_id = read_json_path(item, options.id_field)
-    if vacancy_id is None or not str(vacancy_id).strip():
-        fail_source_fetch(source, f"list item has no ID at {options.id_field!r}")
-    fields = {name: read_json_path(item, path) for name, path in options.fields.items()}
-    return ListedVacancy(
-        vacancy_id=str(vacancy_id).strip(),
-        fields={name: None if value is None else str(value) for name, value in fields.items()},
-    )
-
-
-def read_json_path(data: object, path: str) -> object:
-    """Follow a dotted path, such as ``data.items`` or ``tags.0``, into JSON.
-
-    Args:
-        data: Parsed JSON.
-        path: Dotted path. An empty path returns ``data`` itself.
-
-    Returns:
-        The value at the path, or ``None`` when the path does not exist. A
-        JSON ``null`` is treated the same as a missing value.
-    """
-    value = data
-    for part in path.split(".") if path else []:
-        if isinstance(value, dict) and part in value:
-            value = value[part]
-        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
-            value = value[int(part)]
-        else:
-            return None
-    return value
-
-
-def format_query_params(params: QueryParams) -> dict[str, str]:
-    """Turn configured query parameters into text.
-
-    Args:
-        params: Parameters from the config.
-
-    Returns:
-        The parameters with text values.
-    """
-    return {key: str(value) for key, value in params.items()}
-
-
-def fill_vacancy_id(pattern: str, vacancy_id: str) -> str:
-    """Put a Vacancy's ID into a pattern in place of ``{id}``.
-
-    Args:
-        pattern: Text that may contain ``{id}``.
-        vacancy_id: The site's own ID for the Vacancy.
-
-    Returns:
-        The pattern with the ID filled in.
-    """
-    return pattern.replace("{id}", vacancy_id)
-
-
 def fill_vacancy_id_in_json[JsonValue](value: JsonValue, vacancy_id: str) -> JsonValue:
     """Put a Vacancy's ID into every text inside a JSON value in place of ``{id}``.
 
@@ -506,17 +372,3 @@ def fill_vacancy_id_in_json[JsonValue](value: JsonValue, vacancy_id: str) -> Jso
     if isinstance(value, list):
         return [fill_vacancy_id_in_json(item, vacancy_id) for item in value]
     return value
-
-
-def fail_source_fetch(source: SourceConfig, problem: str) -> NoReturn:
-    """Log and raise a fetch error for a Source.
-
-    Args:
-        source: The Source being read.
-        problem: What went wrong.
-
-    Raises:
-        SourceFetchError: Always.
-    """
-    logger.error("Source %s: %s", source.id, problem)
-    raise SourceFetchError(problem)

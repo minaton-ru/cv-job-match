@@ -3,6 +3,8 @@
 import logging
 from dataclasses import dataclass
 
+from cv_job_match.adapters.embedded_state import EmbeddedStateAdapter
+from cv_job_match.adapters.html_css import HtmlCssAdapter
 from cv_job_match.adapters.json_endpoint import JsonEndpointAdapter
 from cv_job_match.discovery import Discovery, TechniqueAdapter
 from cv_job_match.http_client import HttpClient, create_polite_client
@@ -74,7 +76,11 @@ def build_app(
     logger.info("Building app")
     sources = load_sources_config(settings.sources_path)
     http = http or create_polite_client(settings, sources)
-    adapters: dict[Technique, TechniqueAdapter] = {"json_endpoint": JsonEndpointAdapter(http)}
+    adapters: dict[Technique, TechniqueAdapter] = {
+        "json_endpoint": JsonEndpointAdapter(http),
+        "html_css": HtmlCssAdapter(http),
+        "embedded_state": EmbeddedStateAdapter(http),
+    }
     return App(
         settings=settings,
         sources=sources,

@@ -96,6 +96,63 @@ fail, so no partial list is used and the run is reported as suspect. So does a l
 than `max_pages` pages; after `max_pages` full pages, one more page is fetched to check that it
 is empty. Without `size` and `total_path`, only an empty page ends the list.
 
+In every technique, field values and IDs are stripped of surrounding whitespace, and a missing,
+empty or whitespace-only field value is read as no value. An item whose ID is missing or blank
+makes the list fetch fail.
+
+### `html_css` options
+
+For Sources whose list is server-side HTML. Values are read with CSS selectors; selector syntax
+is checked when the Source is checked. Requests are GET, and one page is read.
+
+```yaml
+    list:
+      url: https://careers.example.com/jobs   # required
+      params: {q: python}                     # optional query parameters
+      list_selector: ul.jobs                  # required; the element that holds the list
+      item_selector: li.job                   # required; each item inside that element
+      id_field: {selector: a, attribute: data-id}   # required; where the site's own ID is
+      fields:                                 # optional; field name -> where its value is
+        title: h3                             # plain selector: the element's text
+        url: {selector: a, attribute: href}   # selector plus attribute: the attribute's value
+    detail:                                   # optional; without it, no description is fetched
+      url: https://careers.example.com/jobs/{id}   # {id} is the Vacancy's ID
+      params: {lang: en}                      # optional; {id} is replaced in values too
+      description_selectors: [div.summary, div.duties]  # every match, joined by blank lines
+```
+
+A value is read from the first element its `selector` matches inside the item; an empty or
+missing `selector` means the item itself. Text has its inner whitespace collapsed. A page where
+`list_selector` matches nothing, including a malformed or non-HTML page, makes the list fetch
+fail; a list element with no items is an empty list.
+
+### `embedded_state` options
+
+For Sources whose page embeds its framework state in a script element. The state is read as
+JSON, and items, IDs and fields are found with dotted paths as in `json_endpoint`. Requests are
+GET, and one page is read.
+
+```yaml
+    list:
+      url: https://careers.example.com/jobs   # required
+      params: {q: python}                     # optional query parameters
+      script_selector: script#app-state       # required; the script element with the state
+      assignment: window.__STATE__            # optional; for `window.__STATE__ = {...};`
+      items_path: props.jobs                  # required; '' when the state is the list itself
+      id_field: id                            # required; path to the site's own ID in an item
+      fields: {title: name, url: link}        # optional; field name -> path inside an item
+    detail:                                   # optional; without it, no description is fetched
+      url: https://careers.example.com/jobs/{id}   # {id} is the Vacancy's ID
+      params: {lang: en}                      # optional; {id} is replaced in values too
+      script_selector: script#app-state       # required
+      assignment: window.__STATE__            # optional
+      description_fields: [job.summary, job.duties]  # joined by blank lines
+```
+
+Without `assignment`, the whole script must be JSON. With it, the JSON value right after
+`<assignment> =` is read, and any code after it is ignored. A missing script, a missing
+assignment, malformed JSON or a missing items path makes the list fetch fail.
+
 ## Run
 
 ```sh
@@ -108,7 +165,7 @@ Every command exits with code 3 when the Sources config is invalid and prints th
 
 `check-source <source id>` fetches the Source's list and the descriptions of the first three
 Vacancies, then prints how many Vacancies it found, a preview of those three, and the suspect
-reason when the list fetch failed on any page (see the `json_endpoint` options above). Nothing
+reason when the list fetch failed on any page (see the technique options above). Nothing
 is saved. Switched-off Sources can be checked too. It exits with:
 
 | Code | Meaning                                                        |
