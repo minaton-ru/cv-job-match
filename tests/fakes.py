@@ -186,3 +186,16 @@ def build_json_response(payload: object, status_code: int = 200) -> HttpResponse
         The response.
     """
     return HttpResponse(status_code=status_code, text=json.dumps(payload))
+
+
+def build_html_response(body: str, status_code: int = 200) -> HttpResponse:
+    """Build a canned HTML response.
+
+    Args:
+        body: Markup inside ``<body>``.
+        status_code: HTTP status code.
+
+    Returns:
+        The response.
+    """
+    return HttpResponse(status_code=status_code, text=f"<html><body>{body}</body></html>")

@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from cv_job_match.app import App, build_app
+from cv_job_match.discovery import Discovery
 from cv_job_match.exceptions import (
     HttpRequestError,
     SourcesConfigError,
@@ -12,6 +13,7 @@ from cv_job_match.exceptions import (
 )
 from cv_job_match.http_client import HttpRequest, HttpResponse
 from cv_job_match.settings import Settings
+from cv_job_match.sources import load_sources_config
 from tests.fakes import CannedAnswer, FakeHttpClient, build_json_response
 from tests.sources_files import write_sources_yaml
 
@@ -88,6 +90,23 @@ async def test_check_source_maps_configured_fields(tmp_path: Path) -> None:
     assert second.vacancy_id == "8"
     assert second.title is None
     assert second.url is None
+
+
+@pytest.mark.parametrize(
+    ("title", "expected_title"),
+    [("", None), ("   ", None), ("\n\t", None), ("  Backend Engineer \n", "Backend Engineer")],
+    ids=["empty", "whitespace", "newline-tab", "padded"],
+)
+async def test_check_source_normalizes_blank_json_fields(
+    tmp_path: Path, title: str, expected_title: str | None
+) -> None:
+    app, _ = build_checked_app(
+        tmp_path, {LIST_URL: build_list_response([{"id": 1, "name": title}])}
+    )
+
+    summary = await app.discovery.check_source("alpha-backend")
+
+    assert summary.previews[0].title == expected_title
 
 
 async def test_check_source_sends_list_params_without_pagination(tmp_path: Path) -> None:
@@ -405,12 +424,13 @@ async def test_check_source_rejects_unknown_source_id(
 
 async def test_check_source_rejects_technique_without_adapter(tmp_path: Path) -> None:
     text = "sources:\n  - {id: gamma-html, company: Gamma, technique: html_css}\n"
-    app, _ = build_checked_app(tmp_path, {}, text)
+    sources = load_sources_config(write_sources_yaml(tmp_path, text))
+    discovery = Discovery(sources, {})
 
     with pytest.raises(
         UnsupportedTechniqueError, match="Source 'gamma-html': technique 'html_css' is not"
     ):
-        await app.discovery.check_source("gamma-html")
+        await discovery.check_source("gamma-html")
 
 
 @pytest.mark.parametrize(
