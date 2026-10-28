@@ -190,7 +190,17 @@ saved with all its changes at once, and logged with its status and counts.
 - Later runs record new Vacancies. A new Vacancy's description is fetched once, unless its list
   item already has a `description` field. A new Vacancy whose description fetch fails is left
   out, and the next run finds it again.
-- A Vacancy listed twice in one list is recorded once.
+- A Vacancy listed twice in one list, or by two Sources of one Company, is recorded once.
+- A changed value of a known Vacancy's list field is recorded as a Revision. Only the fields the
+  Source maps are compared, and a Revision never fetches the description again or triggers an
+  Assessment.
+- A Vacancy is closed when no Source of its Company lists it any more, judged by each Source's
+  latest successful Scrape Run. It is kept, not deleted, and if it is listed again it is reopened
+  as the same Vacancy; reopening changes nothing else about it.
+- A run is suspect when the list fetch failed on any page, or when it found nothing while the
+  last successful run of that Source found Vacancies. Finding nothing after a successful run that
+  also found nothing is not suspect. A suspect run records no changes and closes nothing, and it
+  is in the `DiscoveryReport` with its reason.
 - A failed list fetch, or invalid technique options, is recorded as a suspect run and never
   raises. A repository error does raise.
 
