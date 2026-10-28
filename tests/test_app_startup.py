@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from cv_job_match.app import build_app
+from cv_job_match.app import Repositories, build_app
 from cv_job_match.exceptions import SourcesConfigError
 from cv_job_match.settings import Settings
-from tests.fakes import FakeClock, FakeDependency
+from tests.fakes import FakeClock, FakeDependency, FakeDiscoveryRepository
 from tests.sources_files import write_sources_yaml
 
 VALID_SOURCES_YAML = """
@@ -184,7 +184,7 @@ def test_build_app_logs_config_error(tmp_path: Path, caplog: pytest.LogCaptureFi
 
 def test_build_app_uses_given_fakes(tmp_path: Path) -> None:
     clock = FakeClock(datetime(2026, 1, 2, 3, 4, tzinfo=UTC))
-    repos, llm = FakeDependency("repos"), FakeDependency("llm")
+    repos, llm = Repositories(discovery=FakeDiscoveryRepository()), FakeDependency("llm")
     http, notifier = FakeDependency("http"), FakeDependency("notifier")
 
     app = build_app(

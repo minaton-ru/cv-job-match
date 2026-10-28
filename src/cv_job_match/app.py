@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from cv_job_match.adapters.embedded_state import EmbeddedStateAdapter
 from cv_job_match.adapters.html_css import HtmlCssAdapter
 from cv_job_match.adapters.json_endpoint import JsonEndpointAdapter
-from cv_job_match.discovery import Discovery, TechniqueAdapter
+from cv_job_match.discovery import Discovery, DiscoveryRepository, TechniqueAdapter
 from cv_job_match.http_client import HttpClient, create_polite_client
 from cv_job_match.settings import Settings
 from cv_job_match.sources import SourcesConfig, Technique, load_sources_config
@@ -16,17 +16,28 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class Repositories:
+    """Repositories for persistence, one per module.
+
+    Attributes:
+        discovery: Storage of Scrape Runs and the Vacancies they found.
+    """
+
+    discovery: DiscoveryRepository
+
+
+@dataclass(frozen=True)
 class App:
     """The wired application.
 
-    The ``repos``, ``llm`` and ``notifier`` dependencies are not built yet.
-    They stay ``None`` in production until the modules that use them define
-    their interfaces and production implementations.
+    The ``repos``, ``llm`` and ``notifier`` dependencies have no production
+    implementation yet, so they stay ``None`` in production. Without
+    ``repos``, ``Discovery.run_due`` raises and only ``check_source`` works.
 
     Attributes:
         settings: Settings the app was built with.
         sources: The validated Sources config.
-        repos: Repositories for persistence.
+        repos: Repositories for persistence, one per module.
         llm: Chat model for Assessment and Tailoring.
         http: HTTP client for the careers sites.
         notifier: Sends messages to the Candidate.
@@ -36,7 +47,7 @@ class App:
 
     settings: Settings
     sources: SourcesConfig
-    repos: object | None
+    repos: Repositories | None
     llm: object | None
     http: HttpClient
     notifier: object | None
@@ -47,7 +58,7 @@ class App:
 def build_app(
     settings: Settings,
     *,
-    repos: object | None = None,
+    repos: Repositories | None = None,
     llm: object | None = None,
     http: HttpClient | None = None,
     notifier: object | None = None,
@@ -76,6 +87,7 @@ def build_app(
     logger.info("Building app")
     sources = load_sources_config(settings.sources_path)
     http = http or create_polite_client(settings, sources)
+    clock = clock or SystemClock()
     adapters: dict[Technique, TechniqueAdapter] = {
         "json_endpoint": JsonEndpointAdapter(http),
         "html_css": HtmlCssAdapter(http),
@@ -88,6 +100,6 @@ def build_app(
         llm=llm,
         http=http,
         notifier=notifier,
-        clock=clock or SystemClock(),
-        discovery=Discovery(sources, adapters),
+        clock=clock,
+        discovery=Discovery(sources, adapters, repos.discovery if repos else None, clock),
     )

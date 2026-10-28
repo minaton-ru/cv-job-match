@@ -1,4 +1,5 @@
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from cv_job_match.exceptions import (
 from cv_job_match.http_client import HttpRequest, HttpResponse
 from cv_job_match.settings import Settings
 from cv_job_match.sources import load_sources_config
-from tests.fakes import CannedAnswer, FakeHttpClient, build_json_response
+from tests.fakes import CannedAnswer, FakeClock, FakeHttpClient, build_json_response
 from tests.sources_files import write_sources_yaml
 
 LIST_URL = "https://careers.alpha.example/api/jobs"
@@ -425,7 +426,7 @@ async def test_check_source_rejects_unknown_source_id(
 async def test_check_source_rejects_technique_without_adapter(tmp_path: Path) -> None:
     text = "sources:\n  - {id: gamma-html, company: Gamma, technique: html_css}\n"
     sources = load_sources_config(write_sources_yaml(tmp_path, text))
-    discovery = Discovery(sources, {})
+    discovery = Discovery(sources, {}, None, FakeClock(datetime(2026, 10, 1, tzinfo=UTC)))
 
     with pytest.raises(
         UnsupportedTechniqueError, match="Source 'gamma-html': technique 'html_css' is not"
