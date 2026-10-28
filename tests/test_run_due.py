@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from cv_job_match.app import App, Repositories, build_app
-from cv_job_match.discovery import RunRecord
+from cv_job_match.discovery import DiscoveryReport, Revision, RunRecord
 from cv_job_match.exceptions import HttpRequestError, RepositoryNotConfiguredError
 from cv_job_match.http_client import HttpResponse
 from cv_job_match.settings import Settings
@@ -133,8 +133,8 @@ async def test_run_due_waits_full_interval_after_failed_run(tmp_path: Path) -> N
 
 def list_vacancies(repository: FakeDiscoveryRepository) -> dict[str, tuple[str | None, bool]]:
     return {
-        vacancy_id: (vacancy.description, vacancy.is_baseline)
-        for (_, vacancy_id), vacancy in repository.vacancies.items()
+        vacancy_id: (stored.record.description, stored.record.is_baseline)
+        for (_, vacancy_id), stored in repository.vacancies.items()
     }
 
 
@@ -291,7 +291,10 @@ async def test_run_due_logs_each_scrape_run(
 
     await app.discovery.run_due()
 
-    assert "Scrape Run of Source alpha-backend: baseline, found 2, new 2" in caplog.text
+    assert (
+        "Scrape Run of Source alpha-backend: baseline, found 2, new 2, revised 0, closed 0, "
+        "reopened 0" in caplog.text
+    )
     assert "Scrape Run of Source beta-data: suspect, found 0, new 0" in caplog.text
     assert "connection refused" in caplog.text
 
@@ -304,3 +307,137 @@ async def test_run_due_without_repository_raises(tmp_path: Path) -> None:
 
     with pytest.raises(RepositoryNotConfiguredError, match="needs a repository"):
         await app.discovery.run_due()
+
+
+ALPHA_DATA_LIST_URL = "https://careers.alpha.example/api/data-jobs"
+ALPHA_DATA_SOURCE = build_source_yaml("alpha-data", "Alpha Corp", ALPHA_DATA_LIST_URL)
+
+
+async def run_daily_ticks(app: App, clock: FakeClock, days: int) -> list[DiscoveryReport]:
+    reports: list[DiscoveryReport] = []
+    for day in range(days):
+        clock.now = START + timedelta(days=day)
+        reports.append(await app.discovery.run_due())
+    return reports
+
+
+def count_requests(app: App, url: str) -> int:
+    assert isinstance(app.http, FakeHttpClient)
+    return sum(request.url == url for request in app.http.requests)
+
+
+async def test_run_due_records_changed_title_as_revision(tmp_path: Path) -> None:
+    renamed = build_json_response({"items": [{"id": "1", "name": "Senior Role 1"}]})
+    responses: dict[str, CannedAnswer | list[CannedAnswer]] = {
+        ALPHA_LIST_URL: [build_list_response("1"), renamed]
+    }
+    app, repository, clock = build_discovery_app(tmp_path, ALPHA_SOURCE, responses)
+
+    _, revised = await run_daily_ticks(app, clock, days=2)
+
+    assert revised.runs[0].revisions == (Revision("1", {"title": "Senior Role 1"}),)
+    assert revised.runs[0].new_vacancies == ()
+    assert repository.vacancies[("Alpha Corp", "1")].fields["title"] == "Senior Role 1"
+    assert list_vacancies(repository) == {"1": (None, True)}
+    assert count_requests(app, f"{ALPHA_DETAIL_URL}/1") == 0
+
+
+async def test_run_due_keeps_vacancy_open_while_another_source_lists_it(tmp_path: Path) -> None:
+    responses: dict[str, CannedAnswer | list[CannedAnswer]] = {
+        ALPHA_LIST_URL: [build_list_response("1", "2"), build_list_response("2")],
+        ALPHA_DATA_LIST_URL: [build_list_response("1"), build_list_response("1")],
+    }
+    app, repository, clock = build_discovery_app(
+        tmp_path, ALPHA_SOURCE + ALPHA_DATA_SOURCE, responses
+    )
+
+    _, dropped = await run_daily_ticks(app, clock, days=2)
+
+    assert [run.closed_ids for run in dropped.runs] == [frozenset(), frozenset()]
+    assert repository.vacancies[("Alpha Corp", "1")].is_closed is False
+
+
+async def test_run_due_closes_vacancy_dropped_by_every_source(tmp_path: Path) -> None:
+    responses: dict[str, CannedAnswer | list[CannedAnswer]] = {
+        ALPHA_LIST_URL: [build_list_response("1", "2"), build_list_response("2")],
+        ALPHA_DATA_LIST_URL: [build_list_response("1"), build_list_response("2")],
+    }
+    app, repository, clock = build_discovery_app(
+        tmp_path, ALPHA_SOURCE + ALPHA_DATA_SOURCE, responses
+    )
+
+    _, dropped = await run_daily_ticks(app, clock, days=2)
+
+    assert [run.closed_ids for run in dropped.runs] == [frozenset(), frozenset({"1"})]
+    assert repository.vacancies[("Alpha Corp", "1")].is_closed is True
+    assert list_vacancies(repository) == {"1": (None, True), "2": (None, True)}
+
+
+async def test_run_due_reopens_closed_vacancy_as_same_vacancy(tmp_path: Path) -> None:
+    responses: dict[str, CannedAnswer | list[CannedAnswer]] = {
+        ALPHA_LIST_URL: [
+            build_list_response("1", "2"),
+            build_list_response("2"),
+            build_list_response("1", "2"),
+        ]
+    }
+    app, repository, clock = build_discovery_app(tmp_path, ALPHA_SOURCE, responses)
+
+    _, closed, reopened = await run_daily_ticks(app, clock, days=3)
+
+    assert closed.runs[0].closed_ids == {"1"}
+    assert (reopened.runs[0].reopened_ids, reopened.runs[0].new_vacancies) == ({"1"}, ())
+    assert repository.vacancies[("Alpha Corp", "1")].is_closed is False
+    assert list_vacancies(repository) == {"1": (None, True), "2": (None, True)}
+    assert count_requests(app, f"{ALPHA_DETAIL_URL}/1") == 0
+
+
+async def test_run_due_stores_new_vacancy_from_two_sources_once(tmp_path: Path) -> None:
+    responses: dict[str, CannedAnswer | list[CannedAnswer]] = {
+        ALPHA_LIST_URL: [build_list_response("1"), build_list_response("1", "2")],
+        ALPHA_DATA_LIST_URL: [build_list_response("1"), build_list_response("1", "2")],
+        f"{ALPHA_DETAIL_URL}/2": build_detail_response("2"),
+    }
+    app, repository, clock = build_discovery_app(
+        tmp_path, ALPHA_SOURCE + ALPHA_DATA_SOURCE, responses
+    )
+
+    _, second = await run_daily_ticks(app, clock, days=2)
+
+    assert [len(run.new_vacancies) for run in second.runs] == [1, 0]
+    assert list_vacancies(repository) == {"1": (None, True), "2": ("Text 2", False)}
+    assert count_requests(app, f"{ALPHA_DETAIL_URL}/2") == 1
+
+
+@pytest.mark.parametrize(
+    ("failing_list", "expected_error"),
+    [
+        (HttpRequestError("connection refused"), "connection refused"),
+        (build_list_response(), "found 0 Vacancies, the last successful run found 2"),
+    ],
+    ids=["list-fetch-failed", "empty-after-nonempty-success"],
+)
+async def test_run_due_reports_suspect_run_that_closes_nothing(
+    tmp_path: Path, failing_list: CannedAnswer, expected_error: str
+) -> None:
+    responses: dict[str, CannedAnswer | list[CannedAnswer]] = {
+        ALPHA_LIST_URL: [build_list_response("1", "2"), failing_list]
+    }
+    app, repository, clock = build_discovery_app(tmp_path, ALPHA_SOURCE, responses)
+
+    _, suspect = await run_daily_ticks(app, clock, days=2)
+
+    assert [(run.status, run.closed_ids) for run in suspect.runs] == [("suspect", frozenset())]
+    assert expected_error in suspect.runs[0].error
+    assert not any(stored.is_closed for stored in repository.vacancies.values())
+
+
+async def test_run_due_does_not_suspect_empty_list_after_empty_success(tmp_path: Path) -> None:
+    responses: dict[str, CannedAnswer | list[CannedAnswer]] = {
+        ALPHA_LIST_URL: [build_list_response(), build_list_response()]
+    }
+    app, _, clock = build_discovery_app(tmp_path, ALPHA_SOURCE, responses)
+
+    _, second = await run_daily_ticks(app, clock, days=2)
+
+    assert [(run.status, run.error) for run in second.runs] == [("ok", None)]

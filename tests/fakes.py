@@ -2,11 +2,12 @@ import asyncio
 import json
 import ssl
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
 
-from cv_job_match.discovery import NewVacancy, RunRecord, SourceState
+from cv_job_match.discovery import KnownVacancy, NewVacancy, RunRecord, SourceState
 from cv_job_match.exceptions import HttpRequestError
 from cv_job_match.http_client import HttpRequest, HttpResponse
 
@@ -43,6 +44,21 @@ class FakeDependency:
         self.name = name
 
 
+@dataclass
+class FakeStoredVacancy:
+    """A Vacancy as the fake repository stores it.
+
+    Attributes:
+        record: The Vacancy as it was first recorded.
+        fields: The latest known list fields, with every Revision applied.
+        is_closed: Whether it is a Closed Vacancy.
+    """
+
+    record: NewVacancy
+    fields: dict[str, str | None]
+    is_closed: bool = False
+
+
 class FakeDiscoveryRepository:
     """In-memory Discovery storage that saves each Scrape Run all at once.
 
@@ -53,7 +69,7 @@ class FakeDiscoveryRepository:
     def __init__(self) -> None:
         """Create an empty repository."""
         self.runs: list[RunRecord] = []
-        self.vacancies: dict[tuple[str, str], NewVacancy] = {}
+        self.vacancies: dict[tuple[str, str], FakeStoredVacancy] = {}
         self.save_error: Exception | None = None
 
     async def load_state(self, source_id: str, company: str) -> SourceState:
@@ -64,16 +80,27 @@ class FakeDiscoveryRepository:
             company: The Source's Company.
 
         Returns:
-            The Source's last successful run and the Company's known Vacancy IDs.
+            The Source's last successful run, the Company's known Vacancies and
+            the IDs listed by the latest successful run of its other Sources.
         """
         await asyncio.sleep(0)
-        successful = [
-            run for run in self.runs if run.source_id == source_id and run.status != "suspect"
-        ]
-        known_ids = frozenset(
-            vacancy_id for owner, vacancy_id in self.vacancies if owner == company
+        latest: dict[str, RunRecord] = {
+            run.source_id: run
+            for run in self.runs
+            if run.company == company and run.status != "suspect"
+        }
+        known = {
+            vacancy_id: KnownVacancy(stored.fields, stored.is_closed)
+            for (owner, vacancy_id), stored in self.vacancies.items()
+            if owner == company
+        }
+        listed_by_others = frozenset(
+            vacancy_id
+            for other_id, run in latest.items()
+            if other_id != source_id
+            for vacancy_id in run.listed_ids
         )
-        return SourceState(source_id, company, successful[-1] if successful else None, known_ids)
+        return SourceState(source_id, company, latest.get(source_id), known, listed_by_others)
 
     async def load_last_runs(self) -> dict[str, datetime]:
         """Return when each Source last ran.
@@ -84,7 +111,7 @@ class FakeDiscoveryRepository:
         return {run.source_id: run.started_at for run in self.runs}
 
     async def save_run(self, record: RunRecord) -> None:
-        """Save a run and its new Vacancies, or nothing when ``save_error`` is set.
+        """Save a run and all its changes, or nothing when ``save_error`` is set.
 
         Args:
             record: The run to save.
@@ -97,7 +124,15 @@ class FakeDiscoveryRepository:
             raise self.save_error
         self.runs.append(record)
         for vacancy in record.new_vacancies:
-            self.vacancies[(record.company, vacancy.vacancy_id)] = vacancy
+            self.vacancies[(record.company, vacancy.vacancy_id)] = FakeStoredVacancy(
+                vacancy, dict(vacancy.fields)
+            )
+        for revision in record.revisions:
+            self.vacancies[(record.company, revision.vacancy_id)].fields.update(revision.fields)
+        for vacancy_id in record.closed_ids:
+            self.vacancies[(record.company, vacancy_id)].is_closed = True
+        for vacancy_id in record.reopened_ids:
+            self.vacancies[(record.company, vacancy_id)].is_closed = False
 
 
 class FakeTransportFactory:
