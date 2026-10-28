@@ -96,6 +96,9 @@ fail, so no partial list is used and the run is reported as suspect. So does a l
 than `max_pages` pages; after `max_pages` full pages, one more page is fetched to check that it
 is empty. Without `size` and `total_path`, only an empty page ends the list.
 
+In every technique, a field mapped as `description` is the Vacancy's full text, so its
+description is not fetched from `detail`.
+
 In every technique, field values and IDs are stripped of surrounding whitespace, and a missing,
 empty or whitespace-only field value is read as no value. An item whose ID is missing or blank
 makes the list fetch fail.
@@ -175,6 +178,25 @@ is saved. Switched-off Sources can be checked too. It exits with:
 | 2    | Unknown Source id, or its technique has no adapter yet         |
 | 3    | Invalid Sources config or technique options, or a bad extra CA |
 
+### Discovery
+
+`Discovery.run_due()` is the daily Discovery tick. It checks every enabled Source that never ran,
+or whose interval has passed since its last Scrape Run, failed runs included. Sources of one
+Company run one after another, and different Companies run concurrently. Each Scrape Run is
+saved with all its changes at once, and logged with its status and counts.
+
+- The first successful Scrape Run of a Source is its Baseline Run: every Vacancy it finds is
+  recorded as already seen, and no descriptions are fetched.
+- Later runs record new Vacancies. A new Vacancy's description is fetched once, unless its list
+  item already has a `description` field. A new Vacancy whose description fetch fails is left
+  out, and the next run finds it again.
+- A Vacancy listed twice in one list is recorded once.
+- A failed list fetch, or invalid technique options, is recorded as a suspect run and never
+  raises. A repository error does raise.
+
+`run_due` needs a Discovery repository. Production has none yet, so for now it runs only in
+tests, through an in-memory fake.
+
 Requests go through `PoliteHttpClient`: at most one request per second per host, with a
 browser-like User-Agent. Redirects are not followed; a redirected list shows up as an
 `HTTP 3xx` suspect reason, so point `url` at the final address.
@@ -195,14 +217,15 @@ uv run pytest -q
 
 Everything is wired by one factory, `build_app(settings, *, repos, llm, http, notifier, clock)`
 in `src/cv_job_match/app.py`. Production passes only settings, and tests pass Fake classes for
-any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned responses per URL.
+any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned responses per URL, or
+`Repositories(discovery=FakeDiscoveryRepository())` for an in-memory Discovery store.
 
 | Path                                 | Holds                                             |
 | ------------------------------------ | ------------------------------------------------- |
 | `src/cv_job_match/app.py`            | `App` and the `build_app` factory                 |
 | `src/cv_job_match/settings.py`       | Settings read from the environment                |
 | `src/cv_job_match/sources.py`        | Sources config schema and loader                  |
-| `src/cv_job_match/discovery.py`      | `Discovery.check_source` and the adapter interface |
+| `src/cv_job_match/discovery.py`      | `Discovery` (`run_due`, `check_source`), its pure rules (`detect_changes`, `plan_detail_fetches`), and the adapter and repository interfaces |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |
 | `src/cv_job_match/http_client.py`    | `HttpClient` seam and `PoliteHttpClient`          |
 | `src/cv_job_match/exceptions.py`     | Every custom exception                            |

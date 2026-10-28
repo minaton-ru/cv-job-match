@@ -1,3 +1,4 @@
+import asyncio
 import json
 import ssl
 from collections.abc import Mapping
@@ -5,6 +6,7 @@ from datetime import datetime
 
 import httpx
 
+from cv_job_match.discovery import NewVacancy, RunRecord, SourceState
 from cv_job_match.exceptions import HttpRequestError
 from cv_job_match.http_client import HttpRequest, HttpResponse
 
@@ -39,6 +41,63 @@ class FakeDependency:
             name: Which dependency it stands in for.
         """
         self.name = name
+
+
+class FakeDiscoveryRepository:
+    """In-memory Discovery storage that saves each Scrape Run all at once.
+
+    Loading and saving yield to the event loop, as real database calls do, so
+    runs that should not overlap are caught when they do.
+    """
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self.runs: list[RunRecord] = []
+        self.vacancies: dict[tuple[str, str], NewVacancy] = {}
+        self.save_error: Exception | None = None
+
+    async def load_state(self, source_id: str, company: str) -> SourceState:
+        """Return what is known before a Source is checked.
+
+        Args:
+            source_id: The Source to check.
+            company: The Source's Company.
+
+        Returns:
+            The Source's last successful run and the Company's known Vacancy IDs.
+        """
+        await asyncio.sleep(0)
+        successful = [
+            run for run in self.runs if run.source_id == source_id and run.status != "suspect"
+        ]
+        known_ids = frozenset(
+            vacancy_id for owner, vacancy_id in self.vacancies if owner == company
+        )
+        return SourceState(source_id, company, successful[-1] if successful else None, known_ids)
+
+    async def load_last_runs(self) -> dict[str, datetime]:
+        """Return when each Source last ran.
+
+        Returns:
+            Start time of the latest run of any status, by Source id.
+        """
+        return {run.source_id: run.started_at for run in self.runs}
+
+    async def save_run(self, record: RunRecord) -> None:
+        """Save a run and its new Vacancies, or nothing when ``save_error`` is set.
+
+        Args:
+            record: The run to save.
+
+        Raises:
+            Exception: The ``save_error``, when one is set.
+        """
+        await asyncio.sleep(0)
+        if self.save_error is not None:
+            raise self.save_error
+        self.runs.append(record)
+        for vacancy in record.new_vacancies:
+            self.vacancies[(record.company, vacancy.vacancy_id)] = vacancy
 
 
 class FakeTransportFactory:

@@ -23,3 +23,7 @@ class UnknownSourceError(LookupError):
 
 class UnsupportedTechniqueError(LookupError):
     """Raised when no adapter handles a Source's technique yet."""
+
+
+class RepositoryNotConfiguredError(RuntimeError):
+    """Raised when a module needs a repository that the app was built without."""
