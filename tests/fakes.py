@@ -10,6 +10,7 @@ import httpx
 from cv_job_match.discovery import KnownVacancy, NewVacancy, RunRecord, SourceState
 from cv_job_match.exceptions import HttpRequestError
 from cv_job_match.http_client import HttpRequest, HttpResponse
+from cv_job_match.profile import ProfileSnapshot
 
 
 class FakeClock:
@@ -133,6 +134,29 @@ class FakeDiscoveryRepository:
             self.vacancies[(record.company, vacancy_id)].is_closed = True
         for vacancy_id in record.reopened_ids:
             self.vacancies[(record.company, vacancy_id)].is_closed = False
+
+
+class FakeProfileRepository:
+    """In-memory storage of Profile snapshots, keyed by version."""
+
+    def __init__(self) -> None:
+        """Create an empty repository."""
+        self.snapshots: dict[str, ProfileSnapshot] = {}
+
+    async def save_snapshot(self, snapshot: ProfileSnapshot) -> bool:
+        """Save a snapshot unless its version is already stored.
+
+        Args:
+            snapshot: The Profile version to save.
+
+        Returns:
+            Whether the snapshot was saved.
+        """
+        await asyncio.sleep(0)
+        if snapshot.version in self.snapshots:
+            return False
+        self.snapshots[snapshot.version] = snapshot
+        return True
 
 
 class FakeTransportFactory:
