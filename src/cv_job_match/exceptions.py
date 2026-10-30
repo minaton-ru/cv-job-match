@@ -5,6 +5,10 @@ class SourcesConfigError(ValueError):
     """Raised when the Sources config cannot be read or is invalid."""
 
 
+class ProfileError(ValueError):
+    """Raised when the Candidate Profile cannot be read or is invalid."""
+
+
 class HttpClientSetupError(ValueError):
     """Raised when the production HTTP client cannot be set up."""
 

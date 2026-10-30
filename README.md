@@ -20,6 +20,7 @@ the working directory. Never commit `.env`.
 | Variable                    | Default        | Meaning                                                   |
 | --------------------------- | -------------- | --------------------------------------------------------- |
 | `CV_JOB_MATCH_SOURCES_PATH` | `sources.yaml` | Path to the Sources config.                               |
+| `CV_JOB_MATCH_PROFILE_PATH` | `profile`      | Path to the Candidate Profile folder.                     |
 | `CV_JOB_MATCH_LOG_LEVEL`    | `DEBUG`        | Lowest level logged: DEBUG, INFO, WARNING, ERROR or CRITICAL. |
 | `CV_JOB_MATCH_EXTRA_CA_PATH` | not set       | PEM file with an extra root certificate, trusted only for the hosts of Sources with `extra_ca: true`. |
 
@@ -156,6 +157,41 @@ Without `assignment`, the whole script must be JSON. With it, the JSON value rig
 `<assignment> =` is read, and any code after it is ignored. A missing script, a missing
 assignment, malformed JSON or a missing items path makes the list fetch fail.
 
+### Candidate Profile
+
+The Profile folder holds the Candidate's master resume and criteria. It is excluded from Git
+(see `.gitignore`), because it holds personal data. It is loaded and validated at startup: a
+missing folder or file, a file that is not UTF-8, an empty resume, malformed YAML or an invalid
+field stops the app with a logged error that names the problem.
+
+```text
+profile/
+  resume.md       # master resume, Markdown; must not be empty
+  criteria.yaml   # the Candidate's criteria
+```
+
+```yaml
+language: en                  # required; language of Vacancies and Application Packs
+score_threshold: 60           # optional, 0-100, default 60; lowest score that is sent
+preferences: [Remote work]    # optional lists of text, default empty
+excluded_roles: [Sales Manager]
+strengths: [Python]
+weaknesses: [Frontend]
+prefilter:                    # optional; Pre-filter keyword rules
+  title_keywords: [python, backend]
+  excluded_title_keywords: [director]
+  cities: [Example City]
+```
+
+Unknown keys are rejected, so a misspelled key is reported instead of ignored. List items must
+not be blank.
+
+The Profile version is a SHA-256 hash of both files' text, so the same content always gives the
+same version and any edit, comments included, gives a new one.
+`App.profile.save_snapshot_if_new()` saves the loaded Profile through `ProfileRepository` only
+when its version is new. Production has no Profile repository yet, so for now it runs only in
+tests, through an in-memory fake.
+
 ## Run
 
 ```sh
@@ -164,7 +200,8 @@ uv run cv-job-match --sources other.yaml check-config
 uv run cv-job-match check-source example-backend  # dry-run one Source, saving nothing
 ```
 
-Every command exits with code 3 when the Sources config is invalid and prints the error.
+Every command exits with code 3 when the Sources config or the Profile is invalid and prints
+the error.
 
 `check-source <source id>` fetches the Source's list and the descriptions of the first three
 Vacancies, then prints how many Vacancies it found, a preview of those three, and the suspect
@@ -228,7 +265,9 @@ uv run pytest -q
 Everything is wired by one factory, `build_app(settings, *, repos, llm, http, notifier, clock)`
 in `src/cv_job_match/app.py`. Production passes only settings, and tests pass Fake classes for
 any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned responses per URL, or
-`Repositories(discovery=FakeDiscoveryRepository())` for an in-memory Discovery store.
+`Repositories(discovery=FakeDiscoveryRepository(), profile=FakeProfileRepository())` for
+in-memory stores. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
+directory with a synthetic `profile/` folder.
 
 | Path                                 | Holds                                             |
 | ------------------------------------ | ------------------------------------------------- |
@@ -236,6 +275,7 @@ any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned respons
 | `src/cv_job_match/settings.py`       | Settings read from the environment                |
 | `src/cv_job_match/sources.py`        | Sources config schema and loader                  |
 | `src/cv_job_match/discovery.py`      | `Discovery` (`run_due`, `check_source`), its pure rules (`detect_changes`, `plan_detail_fetches`), and the adapter and repository interfaces |
+| `src/cv_job_match/profile.py`        | `load_profile`, `CandidateProfile` and the `ProfileRepository` interface |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |
 | `src/cv_job_match/http_client.py`    | `HttpClient` seam and `PoliteHttpClient`          |
 | `src/cv_job_match/exceptions.py`     | Every custom exception                            |

@@ -148,3 +148,16 @@ def test_run_cli_reports_bad_extra_ca_file(
 
     assert exit_code == 3
     assert "cannot load extra root certificate" in capsys.readouterr().err
+
+
+def test_run_cli_returns_config_error_for_invalid_profile(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    settings = Settings(profile_path=tmp_path / "absent", _env_file=None)
+
+    exit_code = run_cli(
+        ["--sources", write_sources(tmp_path, SOURCES_YAML), "check-config"], settings
+    )
+
+    assert exit_code == 3
+    assert "Invalid Profile" in capsys.readouterr().err

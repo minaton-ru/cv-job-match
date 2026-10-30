@@ -23,6 +23,7 @@ from cv_job_match.constants import (
 from cv_job_match.discovery import RunSummary
 from cv_job_match.exceptions import (
     HttpClientSetupError,
+    ProfileError,
     SourcesConfigError,
     UnknownSourceError,
     UnsupportedTechniqueError,
@@ -137,8 +138,8 @@ def run_cli(
 
     Returns:
         The command's exit code, 2 when no command is given, or 3 when the
-        Sources config or the HTTP client setup is invalid. The error is
-        printed to stderr.
+        Sources config, the Profile or the HTTP client setup is invalid. The
+        error is printed to stderr.
     """
     parser = create_parser()
     args = parser.parse_args(argv)
@@ -150,7 +151,7 @@ def run_cli(
         settings = settings.model_copy(update={"sources_path": args.sources})
     try:
         app = app_factory(settings)
-    except (SourcesConfigError, HttpClientSetupError) as error:
+    except (SourcesConfigError, ProfileError, HttpClientSetupError) as error:
         print(error, file=sys.stderr)
         return CONFIG_ERROR_EXIT_CODE
     logger.info("Running command %s", args.command)
