@@ -180,10 +180,10 @@ preferences: [Remote work]    # optional lists of text, default empty
 excluded_roles: [Sales Manager]
 strengths: [Python]
 weaknesses: [Frontend]
-prefilter:                    # optional; Pre-filter keyword rules
-  title_keywords: [python, backend]
-  excluded_title_keywords: [director]
-  cities: [Example City]
+prefilter:                    # optional; Pre-filter keyword rules, an empty list switches one off
+  title_keywords: [python, backend]   # the title must contain at least one
+  excluded_title_keywords: [director] # a title containing any is filtered out
+  cities: [Example City]              # the city must contain one of them
 ```
 
 Unknown keys are rejected, so a misspelled key is reported instead of ignored. List items must
@@ -254,11 +254,19 @@ browser-like User-Agent. Redirects are not followed; a redirected list shows up 
 ### Evaluation
 
 `App.run_tick()` is the daily pipeline: it runs `Discovery.run_due()`, then
-`Evaluation.evaluate_waiting()`, which assesses every saved Vacancy that is waiting: not a
-Baseline Vacancy, not a Closed Vacancy, and not yet assessed. A Closed Vacancy that is reopened
-before it is assessed waits again. Waiting Vacancies are read from the repository, so a
-Vacancy saved before a crash is assessed on the next tick. `evaluate_vacancy(key)` assesses one
+`Evaluation.evaluate_waiting()`, which pre-filters and assesses every saved Vacancy that is
+waiting: not a Baseline Vacancy, not a Closed Vacancy, not yet assessed and not filtered out.
+A Closed Vacancy that is reopened before it is assessed waits again. Waiting Vacancies are
+read from the repository, so a Vacancy saved before a crash is assessed on the next tick. `evaluate_vacancy(key)` assesses one
 Vacancy, identified by its Company and site ID, and does nothing when it is not waiting.
+
+Before any AI call, the Pre-filter checks the Vacancy's `title` and `city` list fields against
+the Profile's `prefilter` rules. Keywords and cities match as case-insensitive whole words, so
+`go` does not match "Google" and a plural such as `directors` needs a keyword of its own. Map
+the Source's city as a `city` field to use the `cities` rule. A missing, empty or
+whitespace-only title or city is not a mismatch and never filters a Vacancy out. A rejected
+Vacancy makes no AI call and sends no message; it is saved as filtered out with the reason and
+the Profile version, and it no longer waits. The Vacancy's language is not checked.
 
 An Assessment is made by the chat model with structured output (tool calling): a score from 0
 to 100, a verdict (apply, maybe or skip), the matching strengths, the gaps and the exclusions
@@ -306,6 +314,7 @@ directory with a synthetic `profile/` folder.
 | `src/cv_job_match/discovery.py`      | `Discovery` (`run_due`, `check_source`), its pure rules (`detect_changes`, `plan_detail_fetches`), and the adapter and repository interfaces |
 | `src/cv_job_match/profile.py`        | `load_profile`, `CandidateProfile` and the `ProfileRepository` interface |
 | `src/cv_job_match/evaluation.py`     | `Evaluation` (`evaluate_waiting`, `evaluate_vacancy`), the Assessment schema, and the repository and `Notifier` interfaces |
+| `src/cv_job_match/prefilter.py`      | `find_prefilter_reason`, the Pre-filter keyword rules |
 | `src/cv_job_match/chat_model.py`     | `create_chat_model` from the `CV_JOB_MATCH_LLM_*` settings |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |
 | `src/cv_job_match/http_client.py`    | `HttpClient` seam and `PoliteHttpClient`          |
