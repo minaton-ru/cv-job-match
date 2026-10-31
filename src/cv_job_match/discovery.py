@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol
 
-from cv_job_match.constants import DESCRIPTION_FIELD, DESCRIPTION_PREVIEW_CHARS, PREVIEW_COUNT
+from cv_job_match.constants import (
+    DESCRIPTION_FIELD,
+    DESCRIPTION_PREVIEW_CHARS,
+    PREVIEW_COUNT,
+    TITLE_FIELD,
+)
 from cv_job_match.exceptions import (
     RepositoryNotConfiguredError,
     SourceFetchError,
@@ -486,7 +491,7 @@ async def preview_vacancy(
             description = textwrap.shorten(text, DESCRIPTION_PREVIEW_CHARS, placeholder="…")
     return VacancyPreview(
         vacancy_id=vacancy.vacancy_id,
-        title=vacancy.fields.get("title"),
+        title=vacancy.fields.get(TITLE_FIELD),
         url=vacancy.fields.get("url"),
         description=description,
         description_error=description_error,

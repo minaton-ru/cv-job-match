@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from cv_job_match.discovery import KnownVacancy, NewVacancy, RunRecord, SourceState
-from cv_job_match.evaluation import Assessment, VacancyKey, WaitingVacancy
+from cv_job_match.evaluation import Assessment, PrefilterRejection, VacancyKey, WaitingVacancy
 from cv_job_match.exceptions import HttpRequestError
 from cv_job_match.http_client import HttpRequest, HttpResponse
 from cv_job_match.profile import ProfileSnapshot
@@ -59,12 +59,14 @@ class FakeStoredVacancy:
         fields: The latest known list fields, with every Revision applied.
         is_closed: Whether it is a Closed Vacancy.
         assessment: Its Assessment, or ``None`` while it is not assessed.
+        rejection: Its Pre-filter rejection, or ``None`` while it is not filtered out.
     """
 
     record: NewVacancy
     fields: dict[str, str | None]
     is_closed: bool = False
     assessment: Assessment | None = None
+    rejection: PrefilterRejection | None = None
 
 
 class FakeDiscoveryRepository:
@@ -146,13 +148,17 @@ class FakeDiscoveryRepository:
         """Return every Vacancy waiting to be assessed.
 
         Returns:
-            Vacancies that are not Baseline or Closed Vacancies and have no Assessment.
+            Vacancies that are not Baseline or Closed Vacancies, have no Assessment
+            and are not filtered out.
         """
         await asyncio.sleep(0)
         return [
             WaitingVacancy(VacancyKey(*key), dict(stored.fields), stored.record.description)
             for key, stored in self.vacancies.items()
-            if not stored.record.is_baseline and not stored.is_closed and stored.assessment is None
+            if not stored.record.is_baseline
+            and not stored.is_closed
+            and stored.assessment is None
+            and stored.rejection is None
         ]
 
     async def load_waiting_vacancy(self, key: VacancyKey) -> WaitingVacancy | None:
@@ -176,6 +182,16 @@ class FakeDiscoveryRepository:
         await asyncio.sleep(0)
         key = assessment.key
         self.vacancies[(key.company, key.vacancy_id)].assessment = assessment
+
+    async def save_prefilter_rejection(self, rejection: PrefilterRejection) -> None:
+        """Store a Pre-filter rejection with its Vacancy.
+
+        Args:
+            rejection: The rejection to save.
+        """
+        await asyncio.sleep(0)
+        key = rejection.key
+        self.vacancies[(key.company, key.vacancy_id)].rejection = rejection
 
 
 class FakeProfileRepository:

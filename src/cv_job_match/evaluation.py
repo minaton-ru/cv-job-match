@@ -1,4 +1,4 @@
-"""Evaluation: AI Assessment of waiting Vacancies and messages about good ones."""
+"""Evaluation: Pre-filter and AI Assessment of waiting Vacancies, and messages about good ones."""
 
 import logging
 from collections.abc import Mapping
@@ -10,12 +10,13 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from cv_job_match.constants import ASSESSMENT_INSTRUCTIONS
+from cv_job_match.constants import ASSESSMENT_INSTRUCTIONS, TITLE_FIELD
 from cv_job_match.exceptions import (
     DependencyNotConfiguredError,
     InvalidAssessmentError,
     RepositoryNotConfiguredError,
 )
+from cv_job_match.prefilter import find_prefilter_reason
 from cv_job_match.profile import ProfileSnapshot
 from cv_job_match.utils.clock import Clock
 
@@ -85,15 +86,32 @@ class Assessment:
     assessed_at: datetime
 
 
+@dataclass(frozen=True)
+class PrefilterRejection:
+    """A Vacancy the Pre-filter filtered out, so it never reaches the AI.
+
+    Attributes:
+        key: Identity of the filtered-out Vacancy.
+        reason: Which rule rejected it and why.
+        profile_version: Version hash of the Profile whose rules were applied.
+        filtered_at: When it was filtered out.
+    """
+
+    key: VacancyKey
+    reason: str
+    profile_version: str
+    filtered_at: datetime
+
+
 class EvaluationRepository(Protocol):
-    """Storage of the Vacancies waiting to be assessed and their Assessments."""
+    """Storage of the Vacancies waiting to be assessed, their Assessments and rejections."""
 
     async def load_waiting_vacancies(self) -> list[WaitingVacancy]:
         """Load every Vacancy waiting to be assessed.
 
         Returns:
-            Saved Vacancies that are not Baseline or Closed Vacancies and have no
-            Assessment.
+            Saved Vacancies that are not Baseline or Closed Vacancies, have no
+            Assessment and were not filtered out by the Pre-filter.
         """
         ...
 
@@ -113,6 +131,14 @@ class EvaluationRepository(Protocol):
 
         Args:
             assessment: The Assessment to save.
+        """
+        ...
+
+    async def save_prefilter_rejection(self, rejection: PrefilterRejection) -> None:
+        """Save a Pre-filter rejection, so its Vacancy no longer waits.
+
+        Args:
+            rejection: The rejection to save.
         """
         ...
 
@@ -156,9 +182,10 @@ class Evaluation:
         self.clock = clock
 
     async def evaluate_waiting(self) -> list[Assessment]:
-        """Assess every Vacancy waiting to be assessed.
+        """Pre-filter and assess every Vacancy waiting to be assessed.
 
-        A failed AI call or invalid structured output is logged, and the
+        A Vacancy the Pre-filter rejects is saved as filtered out and makes no
+        AI call. A failed AI call or invalid structured output is logged, and the
         Vacancy keeps waiting for the next tick.
 
         Returns:
@@ -181,8 +208,8 @@ class Evaluation:
             key: Identity of the Vacancy.
 
         Returns:
-            The saved Assessment, or ``None`` when the Vacancy is not waiting
-            or its Assessment failed.
+            The saved Assessment, or ``None`` when the Vacancy is not waiting,
+            the Pre-filter rejected it or its Assessment failed.
 
         Raises:
             RepositoryNotConfiguredError: If the app has no Evaluation repository.
@@ -196,13 +223,14 @@ class Evaluation:
         return await self.assess_waiting_vacancy(vacancy)
 
     async def assess_waiting_vacancy(self, vacancy: WaitingVacancy) -> Assessment | None:
-        """Assess one waiting Vacancy, save the Assessment and send a good match.
+        """Pre-filter and assess one waiting Vacancy, save the outcome and send a good match.
 
         Args:
             vacancy: The waiting Vacancy.
 
         Returns:
-            The saved Assessment, or ``None`` when the AI call or its output failed.
+            The saved Assessment, or ``None`` when the Pre-filter rejected the
+            Vacancy or the AI call or its output failed.
 
         Raises:
             RepositoryNotConfiguredError: If the app has no Evaluation repository.
@@ -210,6 +238,12 @@ class Evaluation:
         """
         repository, llm, notifier = self.require_dependencies()
         key = vacancy.key
+        reason = find_prefilter_reason(self.profile.criteria.prefilter, vacancy.fields)
+        if reason is not None:
+            rejection = PrefilterRejection(key, reason, self.profile.version, self.clock.now_utc())
+            await repository.save_prefilter_rejection(rejection)
+            logger.info("Filtered out Vacancy %s of %s: %s", key.vacancy_id, key.company, reason)
+            return None
         try:
             result = await request_assessment(llm, self.profile, vacancy)
         except Exception as error:
@@ -357,7 +391,7 @@ def format_assessment_message(vacancy: WaitingVacancy, result: AssessmentResult)
     Returns:
         Company, title, link, score, verdict and short reasons.
     """
-    title = vacancy.fields.get("title") or vacancy.key.vacancy_id
+    title = vacancy.fields.get(TITLE_FIELD) or vacancy.key.vacancy_id
     return "\n".join(
         [
             f"{vacancy.key.company}: {title}",

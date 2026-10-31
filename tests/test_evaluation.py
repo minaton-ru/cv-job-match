@@ -35,19 +35,22 @@ sources:
       url: '{LIST_URL}'
       items_path: items
       id_field: id
-      fields: {{title: name, url: link, description: text}}
+      fields: {{title: name, url: link, city: town, description: text}}
 """
 VACANCY_KEY = VacancyKey("Alpha Corp", "v1")
 
 
-def build_list_response(*vacancy_ids: str) -> HttpResponse:
+def build_list_response(
+    *vacancy_ids: str, title: str = "Python Developer", city: str = "Example City"
+) -> HttpResponse:
     return build_json_response(
         {
             "items": [
                 {
                     "id": vacancy_id,
-                    "name": f"Role {vacancy_id}",
+                    "name": f"{title} {vacancy_id}",
                     "link": f"https://careers.alpha.example/jobs/{vacancy_id}",
+                    "town": city,
                     "text": f"Text {vacancy_id}",
                 }
                 for vacancy_id in vacancy_ids
@@ -110,7 +113,7 @@ async def test_run_tick_assesses_new_vacancy_and_notifies_from_threshold(
     assert assessment.profile_version == app.profile.snapshot.version
     assert repository.vacancies[("Alpha Corp", "v1")].assessment == assessment
     expected = (
-        f"Alpha Corp: Role v1\nhttps://careers.alpha.example/jobs/v1\n"
+        f"Alpha Corp: Python Developer v1\nhttps://careers.alpha.example/jobs/v1\n"
         f"Score {score}, verdict: apply\nStrengths: Python\nGaps: Go\nExclusions: none"
     )
     assert notifier.messages == ([expected] if is_sent else [])
@@ -174,6 +177,37 @@ async def test_run_tick_keeps_vacancy_waiting_after_failed_assessment_and_retrie
 
     assert [assessment.result.score for assessment in retried.assessments] == [70]
     assert len(notifier.messages) == 1
+
+
+@pytest.mark.parametrize(
+    ("title", "city", "reason"),
+    [
+        ("Java Developer", "Example City", "title has none of 'python', 'backend'"),
+        ("Python Developer", "Other Town", "city 'Other Town' is not one of 'Example City'"),
+    ],
+)
+async def test_run_tick_filters_out_mismatch_without_ai_call(
+    tmp_path: Path, title: str, city: str, reason: str
+) -> None:
+    llm = build_fake_chat_model(build_assessment_message(score=90, verdict="apply"))
+    notifier = FakeNotifier()
+    new_list = build_list_response("v1", title=title, city=city)
+    app, repository, clock = build_evaluation_app(
+        tmp_path, llm, [build_list_response(), new_list], notifier
+    )
+    await discover_new_vacancy(app, clock)
+
+    report = await app.run_tick()
+
+    stored = repository.vacancies[("Alpha Corp", "v1")]
+    assert report.assessments == ()
+    assert stored.assessment is None
+    assert stored.rejection is not None
+    assert stored.rejection.reason == reason
+    assert stored.rejection.profile_version == app.profile.snapshot.version
+    assert notifier.messages == []
+    assert next(llm.messages, None) is not None, "the AI answer must stay unrequested"
+    assert await app.evaluation.evaluate_vacancy(VACANCY_KEY) is None
 
 
 def test_build_app_creates_chat_model_from_settings(tmp_path: Path) -> None:
