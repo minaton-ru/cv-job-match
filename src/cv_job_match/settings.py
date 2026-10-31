@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BeforeValidator
+from pydantic import BeforeValidator, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,10 @@ class Settings(BaseSettings):
         log_level: Lowest level of the records written to the log file.
         extra_ca_path: PEM file with the extra root certificate trusted for
             the hosts of Sources with ``extra_ca: true``.
+        llm_base_url: Base URL of the OpenAI-compatible AI provider, or
+            ``None`` for the OpenAI API itself.
+        llm_model: Chat model that makes Assessments.
+        llm_api_key: API key of the AI provider.
     """
 
     model_config = SettingsConfigDict(env_prefix="CV_JOB_MATCH_", env_file=".env", extra="ignore")
@@ -45,3 +49,6 @@ class Settings(BaseSettings):
     profile_path: Path = Path("profile")
     log_level: LogLevel = "DEBUG"
     extra_ca_path: Path | None = None
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+    llm_api_key: SecretStr | None = None

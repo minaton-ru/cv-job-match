@@ -23,6 +23,9 @@ the working directory. Never commit `.env`.
 | `CV_JOB_MATCH_PROFILE_PATH` | `profile`      | Path to the Candidate Profile folder.                     |
 | `CV_JOB_MATCH_LOG_LEVEL`    | `DEBUG`        | Lowest level logged: DEBUG, INFO, WARNING, ERROR or CRITICAL. |
 | `CV_JOB_MATCH_EXTRA_CA_PATH` | not set       | PEM file with an extra root certificate, trusted only for the hosts of Sources with `extra_ca: true`. |
+| `CV_JOB_MATCH_LLM_BASE_URL` | not set        | Base URL of the OpenAI-compatible AI provider; not set means the OpenAI API. |
+| `CV_JOB_MATCH_LLM_MODEL`    | not set        | Chat model for Assessments; it must support tool calling.  |
+| `CV_JOB_MATCH_LLM_API_KEY`  | not set        | API key of the AI provider.                               |
 
 ### Sources config
 
@@ -248,6 +251,30 @@ Requests go through `PoliteHttpClient`: at most one request per second per host,
 browser-like User-Agent. Redirects are not followed; a redirected list shows up as an
 `HTTP 3xx` suspect reason, so point `url` at the final address.
 
+### Evaluation
+
+`App.run_tick()` is the daily pipeline: it runs `Discovery.run_due()`, then
+`Evaluation.evaluate_waiting()`, which assesses every saved Vacancy that is waiting: not a
+Baseline Vacancy, not a Closed Vacancy, and not yet assessed. A Closed Vacancy that is reopened
+before it is assessed waits again. Waiting Vacancies are read from the repository, so a
+Vacancy saved before a crash is assessed on the next tick. `evaluate_vacancy(key)` assesses one
+Vacancy, identified by its Company and site ID, and does nothing when it is not waiting.
+
+An Assessment is made by the chat model with structured output (tool calling): a score from 0
+to 100, a verdict (apply, maybe or skip), the matching strengths, the gaps and the exclusions
+triggered. It is saved with the Profile version it was made against. A failed AI call or invalid
+structured output is logged, nothing is saved, and the Vacancy keeps waiting for the next tick.
+
+When the score is at or above the Profile's `score_threshold`, the Candidate gets one message
+through the `Notifier` with the Company, title, link, score, verdict, strengths, gaps and
+exclusions. The Assessment is saved before the message is sent, so a failed send is logged
+as an error, is not retried, and does not stop the tick.
+
+The chat model is created from the `CV_JOB_MATCH_LLM_*` settings through any OpenAI-compatible
+API. Without a model or API key, `App.llm` is `None`. Evaluation needs a repository, a chat model
+and a notifier, and raises without any of them. Production has no Evaluation repository or
+real notifier yet, so for now it runs only in tests, through fakes.
+
 ### Logs
 
 Every log of the service, from `CV_JOB_MATCH_LOG_LEVEL` up, goes to `cv_job_match.log` in the working directory.
@@ -264,9 +291,11 @@ uv run pytest -q
 
 Everything is wired by one factory, `build_app(settings, *, repos, llm, http, notifier, clock)`
 in `src/cv_job_match/app.py`. Production passes only settings, and tests pass Fake classes for
-any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned responses per URL, or
+any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned responses per URL,
 `Repositories(discovery=FakeDiscoveryRepository(), profile=FakeProfileRepository())` for
-in-memory stores. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
+in-memory stores, `FakeNotifier` for sent messages, or `FakeChatModel`, built by
+`build_fake_chat_model` with answers from `build_assessment_message`. `FakeDiscoveryRepository`
+also serves as the `evaluation` repository, so both share one store. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
 directory with a synthetic `profile/` folder.
 
 | Path                                 | Holds                                             |
@@ -276,6 +305,8 @@ directory with a synthetic `profile/` folder.
 | `src/cv_job_match/sources.py`        | Sources config schema and loader                  |
 | `src/cv_job_match/discovery.py`      | `Discovery` (`run_due`, `check_source`), its pure rules (`detect_changes`, `plan_detail_fetches`), and the adapter and repository interfaces |
 | `src/cv_job_match/profile.py`        | `load_profile`, `CandidateProfile` and the `ProfileRepository` interface |
+| `src/cv_job_match/evaluation.py`     | `Evaluation` (`evaluate_waiting`, `evaluate_vacancy`), the Assessment schema, and the repository and `Notifier` interfaces |
+| `src/cv_job_match/chat_model.py`     | `create_chat_model` from the `CV_JOB_MATCH_LLM_*` settings |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |
 | `src/cv_job_match/http_client.py`    | `HttpClient` seam and `PoliteHttpClient`          |
 | `src/cv_job_match/exceptions.py`     | Every custom exception                            |
