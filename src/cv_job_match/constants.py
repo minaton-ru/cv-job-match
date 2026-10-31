@@ -32,3 +32,22 @@ DESCRIPTION_FIELD = "description"
 RESUME_FILE_NAME = "resume.md"
 CRITERIA_FILE_NAME = "criteria.yaml"
 DEFAULT_SCORE_THRESHOLD = 60
+
+ASSESSMENT_INSTRUCTIONS = """\
+You assess how well one job Vacancy fits the Candidate described below.
+Return a score from 0 to 100, a verdict (apply, maybe or skip), the Candidate's strengths
+that match the Vacancy, the gaps, and every exclusion the Vacancy triggers. Exclusions are
+excluded Roles and anything the Candidate's preferences rule out, including ones that need
+judgement rather than an exact keyword match. Keep every item short.
+
+# Master resume
+
+{resume}
+
+# Criteria
+
+Preferences: {preferences}
+Excluded Roles: {excluded_roles}
+Strengths: {strengths}
+Weaknesses: {weaknesses}
+"""

@@ -31,3 +31,11 @@ class UnsupportedTechniqueError(LookupError):
 
 class RepositoryNotConfiguredError(RuntimeError):
     """Raised when a module needs a repository that the app was built without."""
+
+
+class DependencyNotConfiguredError(RuntimeError):
+    """Raised when a module needs a chat model or notifier that the app was built without."""
+
+
+class InvalidAssessmentError(ValueError):
+    """Raised when the chat model returns no valid Assessment."""

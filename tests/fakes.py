@@ -6,8 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
+from langchain_core.language_models import BaseChatModel
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 from cv_job_match.discovery import KnownVacancy, NewVacancy, RunRecord, SourceState
+from cv_job_match.evaluation import Assessment, VacancyKey, WaitingVacancy
 from cv_job_match.exceptions import HttpRequestError
 from cv_job_match.http_client import HttpRequest, HttpResponse
 from cv_job_match.profile import ProfileSnapshot
@@ -53,15 +58,17 @@ class FakeStoredVacancy:
         record: The Vacancy as it was first recorded.
         fields: The latest known list fields, with every Revision applied.
         is_closed: Whether it is a Closed Vacancy.
+        assessment: Its Assessment, or ``None`` while it is not assessed.
     """
 
     record: NewVacancy
     fields: dict[str, str | None]
     is_closed: bool = False
+    assessment: Assessment | None = None
 
 
 class FakeDiscoveryRepository:
-    """In-memory Discovery storage that saves each Scrape Run all at once.
+    """In-memory Discovery and Evaluation storage that saves each Scrape Run all at once.
 
     Loading and saving yield to the event loop, as real database calls do, so
     runs that should not overlap are caught when they do.
@@ -135,6 +142,41 @@ class FakeDiscoveryRepository:
         for vacancy_id in record.reopened_ids:
             self.vacancies[(record.company, vacancy_id)].is_closed = False
 
+    async def load_waiting_vacancies(self) -> list[WaitingVacancy]:
+        """Return every Vacancy waiting to be assessed.
+
+        Returns:
+            Vacancies that are not Baseline or Closed Vacancies and have no Assessment.
+        """
+        await asyncio.sleep(0)
+        return [
+            WaitingVacancy(VacancyKey(*key), dict(stored.fields), stored.record.description)
+            for key, stored in self.vacancies.items()
+            if not stored.record.is_baseline and not stored.is_closed and stored.assessment is None
+        ]
+
+    async def load_waiting_vacancy(self, key: VacancyKey) -> WaitingVacancy | None:
+        """Return one Vacancy if it is waiting to be assessed.
+
+        Args:
+            key: Identity of the Vacancy.
+
+        Returns:
+            The Vacancy, or ``None`` when it is unknown or not waiting.
+        """
+        waiting = await self.load_waiting_vacancies()
+        return next((vacancy for vacancy in waiting if vacancy.key == key), None)
+
+    async def save_assessment(self, assessment: Assessment) -> None:
+        """Store an Assessment with its Vacancy.
+
+        Args:
+            assessment: The Assessment to save.
+        """
+        await asyncio.sleep(0)
+        key = assessment.key
+        self.vacancies[(key.company, key.vacancy_id)].assessment = assessment
+
 
 class FakeProfileRepository:
     """In-memory storage of Profile snapshots, keyed by version."""
@@ -157,6 +199,86 @@ class FakeProfileRepository:
             return False
         self.snapshots[snapshot.version] = snapshot
         return True
+
+
+class FakeNotifier:
+    """Notifier that keeps every message it is asked to send."""
+
+    def __init__(self) -> None:
+        """Create the notifier with no messages."""
+        self.messages: list[str] = []
+
+    async def send_message(self, text: str) -> None:
+        """Keep the message.
+
+        Args:
+            text: The message text.
+        """
+        self.messages.append(text)
+
+
+class FakeChatModel(GenericFakeChatModel):
+    """LangChain fake chat model with canned answers or errors that accepts tools."""
+
+    def _generate(
+        self, messages: list[BaseMessage], *args: object, **kwargs: object
+    ) -> ChatResult:
+        """Return the next canned answer, or raise it when it is an error.
+
+        Args:
+            messages: The prompt messages.
+            *args: Generation options of the real model.
+            **kwargs: Generation options of the real model.
+
+        Returns:
+            The canned answer.
+
+        Raises:
+            Exception: The canned error.
+        """
+        answer = next(self.messages)
+        if isinstance(answer, Exception):
+            raise answer
+        message = answer if isinstance(answer, AIMessage) else AIMessage(content=answer)
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    def bind_tools(self, tools: object, **kwargs: object) -> BaseChatModel:
+        """Ignore the tools, since the canned messages already hold the tool calls.
+
+        Args:
+            tools: Tools the real model would be bound to.
+            **kwargs: Binding options of the real model.
+
+        Returns:
+            The same model.
+        """
+        return self
+
+
+def build_assessment_message(**args: object) -> AIMessage:
+    """Build a canned model answer that calls the Assessment tool.
+
+    Args:
+        **args: Arguments of the Assessment result.
+
+    Returns:
+        The answer with one tool call.
+    """
+    return AIMessage(
+        content="", tool_calls=[{"name": "AssessmentResult", "args": args, "id": "call-1"}]
+    )
+
+
+def build_fake_chat_model(*answers: AIMessage | str | Exception) -> FakeChatModel:
+    """Create a fake chat model with canned answers in order.
+
+    Args:
+        *answers: A message to return, or an error to raise, per call.
+
+    Returns:
+        The fake chat model.
+    """
+    return FakeChatModel(messages=iter(answers))
 
 
 class FakeTransportFactory:
