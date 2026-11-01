@@ -42,7 +42,7 @@ class ProfileCriteria(BaseModel):
     """The Candidate's criteria from the criteria file.
 
     Attributes:
-        language: The one language of Vacancies and Application Packs.
+        language: The language of Application Packs; Vacancies are assumed to be in it.
         score_threshold: Lowest Assessment score that reaches the Candidate.
         preferences: What the Candidate prefers in a job.
         excluded_roles: Roles the Candidate never wants.
