@@ -253,9 +253,9 @@ browser-like User-Agent. Redirects are not followed; a redirected list shows up 
 
 ### Evaluation
 
-`App.run_tick()` is the daily pipeline: it runs `Discovery.run_due()`, then
-`Evaluation.evaluate_waiting()`, which pre-filters and assesses every saved Vacancy that is
-waiting: not a Baseline Vacancy, not a Closed Vacancy, not yet assessed and not filtered out.
+`App.run_tick()` is the daily pipeline: it runs `Discovery.run_due()`, sends the alerts
+described below, then `Evaluation.evaluate_waiting()`, which pre-filters and assesses every
+saved Vacancy that is waiting: not a Baseline Vacancy, not a Closed Vacancy, not yet assessed and not filtered out.
 A Closed Vacancy that is reopened before it is assessed waits again. Waiting Vacancies are
 read from the repository, so a Vacancy saved before a crash is assessed on the next tick. `evaluate_vacancy(key)` assesses one
 Vacancy, identified by its Company and site ID, and does nothing when it is not waiting.
@@ -284,6 +284,14 @@ The chat model is created from the `CV_JOB_MATCH_LLM_*` settings through any Ope
 API. Without a model or API key, `App.llm` is `None`. Evaluation needs a repository, a chat model
 and a notifier, and raises without any of them. Production has no Evaluation repository or
 real notifier yet, so for now it runs only in tests, through fakes.
+
+### Alerts
+
+For every Suspect Scrape Run of the tick, the Candidate gets one message through the `Notifier`
+naming the Source, its Company and the reason, such as
+`Suspect Scrape Run of Source example-backend (Example Corp): request failed: connection refused`.
+A failed send is logged as an error, is not retried, and does not stop the alerts for other
+Sources or Evaluation. Without a notifier the tick raises before Discovery starts.
 
 ### Logs
 

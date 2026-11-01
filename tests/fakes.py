@@ -220,16 +220,26 @@ class FakeProfileRepository:
 class FakeNotifier:
     """Notifier that keeps every message it is asked to send."""
 
-    def __init__(self) -> None:
-        """Create the notifier with no messages."""
+    def __init__(self, fail_on: str | None = None) -> None:
+        """Create the notifier with no messages.
+
+        Args:
+            fail_on: Text that makes a send fail when the message contains it, if any.
+        """
         self.messages: list[str] = []
+        self.fail_on = fail_on
 
     async def send_message(self, text: str) -> None:
-        """Keep the message.
+        """Keep the message, or fail when it contains ``fail_on``.
 
         Args:
             text: The message text.
+
+        Raises:
+            ConnectionError: When the message contains ``fail_on``.
         """
+        if self.fail_on is not None and self.fail_on in text:
+            raise ConnectionError("notifier is down")
         self.messages.append(text)
 
 
