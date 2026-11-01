@@ -174,7 +174,7 @@ profile/
 ```
 
 ```yaml
-language: en                  # required; language of Vacancies and Application Packs
+language: en                  # required; language of Application Packs
 score_threshold: 60           # optional, 0-100, default 60; lowest score that is sent
 preferences: [Remote work]    # optional lists of text, default empty
 excluded_roles: [Sales Manager]
@@ -266,7 +266,9 @@ the Profile's `prefilter` rules. Keywords and cities match as case-insensitive w
 the Source's city as a `city` field to use the `cities` rule. A missing, empty or
 whitespace-only title or city is not a mismatch and never filters a Vacancy out. A rejected
 Vacancy makes no AI call and sends no message; it is saved as filtered out with the reason and
-the Profile version, and it no longer waits. The Vacancy's language is not checked.
+the Profile version, and it no longer waits. The Vacancy's language is not checked: set up each
+Source so that it lists only Vacancies in the Profile's `language` (see
+[ADR 0005](docs/adr/0005-no-language-check-in-prefilter.md)).
 
 An Assessment is made by the chat model with structured output (tool calling): a score from 0
 to 100, a verdict (apply, maybe or skip), the matching strengths, the gaps and the exclusions

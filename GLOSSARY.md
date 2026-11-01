@@ -48,7 +48,7 @@ A kind of job, such as "Backend Engineer", as used in the Candidate's criteria. 
 _Avoid_: Position, job type
 
 **Pre-filter**:
-Cheap rule-based screening of a Vacancy (title, city, language) against the Candidate's criteria, with no AI involved. Vacancies it rejects are kept, marked as filtered out together with the reason.
+Cheap rule-based screening of a Vacancy (title and city) against the Candidate's criteria, with no AI involved. Vacancies it rejects are kept, marked as filtered out together with the reason.
 
 **Assessment**:
 An AI judgement of how well a Vacancy fits the Candidate Profile. It consists of a score, a verdict (apply, maybe or skip), the strengths that match, the gaps, and any exclusions triggered. It is tied to the version of the Profile it was made against.
