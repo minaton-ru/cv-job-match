@@ -8,6 +8,7 @@ from langchain_core.language_models import BaseChatModel
 from cv_job_match.adapters.embedded_state import EmbeddedStateAdapter
 from cv_job_match.adapters.html_css import HtmlCssAdapter
 from cv_job_match.adapters.json_endpoint import JsonEndpointAdapter
+from cv_job_match.alerts import send_suspect_run_alerts
 from cv_job_match.chat_model import create_chat_model
 from cv_job_match.discovery import (
     Discovery,
@@ -16,6 +17,7 @@ from cv_job_match.discovery import (
     TechniqueAdapter,
 )
 from cv_job_match.evaluation import Assessment, Evaluation, EvaluationRepository, Notifier
+from cv_job_match.exceptions import DependencyNotConfiguredError
 from cv_job_match.http_client import HttpClient, create_polite_client
 from cv_job_match.profile import CandidateProfile, ProfileRepository, load_profile
 from cv_job_match.settings import Settings
@@ -46,10 +48,12 @@ class TickReport:
 
     Attributes:
         discovery: Every Scrape Run of the tick.
+        alert_count: How many alerts about Suspect Scrape Runs were sent.
         assessments: Every Assessment saved in the tick.
     """
 
     discovery: DiscoveryReport
+    alert_count: int
     assessments: tuple[Assessment, ...]
 
 
@@ -62,7 +66,7 @@ class App:
     ``None`` until its model and API key are set. Without ``repos``,
     ``Discovery.run_due`` raises and only ``check_source`` works, and saving a
     Profile snapshot raises too. Evaluation raises without its repository,
-    ``llm`` or ``notifier``.
+    ``llm`` or ``notifier``, and so does the daily tick without ``notifier``.
 
     Attributes:
         settings: Settings the app was built with.
@@ -89,28 +93,48 @@ class App:
     evaluation: Evaluation
 
     async def run_tick(self) -> TickReport:
-        """Run the daily pipeline: Discovery, then Evaluation of waiting Vacancies.
+        """Run the daily pipeline: Discovery, alerts, then Evaluation of waiting Vacancies.
 
-        Evaluation reads the waiting Vacancies from the repository, so a
-        Vacancy saved before a crash is assessed on the next tick.
+        Every Suspect Scrape Run sends the Candidate an alert. A failed alert is
+        logged and does not stop the tick. Evaluation reads the waiting
+        Vacancies from the repository, so a Vacancy saved before a crash is
+        assessed on the next tick.
 
         Returns:
-            The Scrape Runs and the Assessments of this tick.
+            The Scrape Runs, the number of alerts sent and the Assessments of this tick.
 
         Raises:
             RepositoryNotConfiguredError: If the app has no Discovery or
                 Evaluation repository.
-            DependencyNotConfiguredError: If Evaluation has no chat model or notifier.
+            DependencyNotConfiguredError: If the app has no notifier, or
+                Evaluation has no chat model.
         """
         logger.info("Starting daily tick")
+        notifier = self.require_notifier()
         discovery = await self.discovery.run_due()
+        alert_count = await send_suspect_run_alerts(notifier, discovery)
         assessments = await self.evaluation.evaluate_waiting()
         logger.info(
-            "Daily tick done: %d Scrape Runs, %d Assessments",
+            "Daily tick done: %d Scrape Runs, %d alerts, %d Assessments",
             len(discovery.runs),
+            alert_count,
             len(assessments),
         )
-        return TickReport(discovery, tuple(assessments))
+        return TickReport(discovery, alert_count, tuple(assessments))
+
+    def require_notifier(self) -> Notifier:
+        """Return the notifier the app may have been built without.
+
+        Returns:
+            The notifier.
+
+        Raises:
+            DependencyNotConfiguredError: If the app has no notifier.
+        """
+        if self.notifier is None:
+            logger.error("Daily tick has no notifier")
+            raise DependencyNotConfiguredError("The daily tick needs a notifier")
+        return self.notifier
 
 
 def build_app(
