@@ -9,6 +9,7 @@
 - If a method should return no entity - check for `is None`.
 - For errors use `pytest.raises(..., match=...)`.
 - Test names should follow the `test_...` style.
+- Don’t chase 100% coverage by adding unnecessary or low-value tests. Focus on tests that protect important behavior.
 
 ### Unit tests
 - Happy path.
@@ -38,13 +39,13 @@
 Declare a task done only after docstrings are updated, README.md is updated, and all of these pass green:
   - `uv run ruff format .`
   - `uv run ruff check --fix .`
-  - `uv run pytest -q` passes, with a test added for every new code
+  - `uv run pytest -q`
 
 ## Constraints
 - Never edit: lock files, `.env`.
 - Never commit `.env` files.
 - Ask before adding dependencies.
-- Before starting coding work, create a new git branch from `main` according to the project's branch naming convention.
+- Before starting coding work, create a new git branch from up to date `main` according to the project's branch naming convention.
 - If a mismatch causes you to think for too long, ask the user this question and suggest possible next steps.
 - Do not look at the `__pycache__` folder unless the user has explicitly asked you to do so.
 - Do not look at git branches other than `main` unless the user has explicitly asked you to do so.
