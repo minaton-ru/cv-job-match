@@ -24,6 +24,7 @@ from cv_job_match.http_client import HttpClient, create_polite_client
 from cv_job_match.profile import CandidateProfile, ProfileRepository, load_profile
 from cv_job_match.settings import Settings
 from cv_job_match.sources import SourcesConfig, Technique, load_sources_config
+from cv_job_match.tailoring import Tailoring, TailoringRepository
 from cv_job_match.utils.clock import Clock, SystemClock
 
 logger = logging.getLogger(__name__)
@@ -38,12 +39,14 @@ class Repositories:
         profile: Storage of Profile snapshots, if any.
         evaluation: Storage of waiting Vacancies and their Assessments, if any.
         decision: Storage of the Candidate's decisions about Vacancies, if any.
+        tailoring: Storage of Shortlisted Vacancies and Application Packs, if any.
     """
 
     discovery: DiscoveryRepository
     profile: ProfileRepository | None = None
     evaluation: EvaluationRepository | None = None
     decision: DecisionRepository | None = None
+    tailoring: TailoringRepository | None = None
 
 
 @dataclass(frozen=True)
@@ -71,7 +74,8 @@ class App:
     ``Discovery.run_due`` raises and only ``check_source`` works, and saving a
     Profile snapshot raises too. Evaluation raises without its repository,
     ``llm`` or ``notifier``, and so does the daily tick without ``notifier``.
-    Decisions raise without their repository.
+    Decisions raise without their repository, and Tailoring logs an error
+    without its repository, ``llm`` or ``notifier``.
 
     Attributes:
         settings: Settings the app was built with.
@@ -85,6 +89,7 @@ class App:
         profile: The Candidate Profile loaded at startup.
         evaluation: Assesses waiting Vacancies and sends good matches.
         decisions: Moves Vacancies along the statuses the Candidate chooses.
+        tailoring: Makes Application Packs for Shortlisted Vacancies.
         bot: Handlers for the Candidate's chat.
     """
 
@@ -99,6 +104,7 @@ class App:
     profile: CandidateProfile
     evaluation: Evaluation
     decisions: Decisions
+    tailoring: Tailoring
     bot: DecisionBot
 
     async def run_tick(self) -> TickReport:
@@ -187,7 +193,11 @@ def build_app(
         "html_css": HtmlCssAdapter(http),
         "embedded_state": EmbeddedStateAdapter(http),
     }
+    discovery = Discovery(sources, adapters, repos.discovery if repos else None, clock)
     decisions = Decisions(repos.decision if repos else None)
+    tailoring = Tailoring(
+        snapshot, discovery, repos.tailoring if repos else None, llm, notifier, clock
+    )
     return App(
         settings=settings,
         sources=sources,
@@ -196,9 +206,10 @@ def build_app(
         http=http,
         notifier=notifier,
         clock=clock,
-        discovery=Discovery(sources, adapters, repos.discovery if repos else None, clock),
+        discovery=discovery,
         profile=CandidateProfile(snapshot, repos.profile if repos else None),
         evaluation=Evaluation(snapshot, repos.evaluation if repos else None, llm, notifier, clock),
         decisions=decisions,
-        bot=DecisionBot(decisions, settings.telegram_chat_id),
+        tailoring=tailoring,
+        bot=DecisionBot(decisions, tailoring, settings.telegram_chat_id),
     )

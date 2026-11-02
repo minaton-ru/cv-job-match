@@ -107,7 +107,8 @@ class Decisions:
         """Save the status the Candidate chose for a Vacancy, if the change is allowed.
 
         Allowed changes are from new to shortlisted, applied or dismissed, and
-        from shortlisted to applied or dismissed.
+        from shortlisted to applied or dismissed. Shortlisting a Shortlisted
+        Vacancy again is allowed too, so its Tailoring can be retried.
 
         Args:
             key: Identity of the Vacancy.

@@ -23,6 +23,7 @@ from cv_job_match.evaluation import (
 from cv_job_match.exceptions import HttpRequestError
 from cv_job_match.http_client import HttpRequest, HttpResponse
 from cv_job_match.profile import ProfileSnapshot
+from cv_job_match.tailoring import ApplicationPack, ShortlistedVacancy
 
 
 class FakeClock:
@@ -68,6 +69,8 @@ class FakeStoredVacancy:
         assessment: Its Assessment, or ``None`` while it is not assessed.
         rejection: Its Pre-filter rejection, or ``None`` while it is not filtered out.
         status: The Candidate's decision about it, ``new`` until one is made.
+        source_id: The Source that recorded it.
+        application_pack: Its latest Application Pack, or ``None`` while it has none.
     """
 
     record: NewVacancy
@@ -76,10 +79,12 @@ class FakeStoredVacancy:
     assessment: Assessment | None = None
     rejection: PrefilterRejection | None = None
     status: VacancyStatus = "new"
+    source_id: str = ""
+    application_pack: ApplicationPack | None = None
 
 
 class FakeDiscoveryRepository:
-    """In-memory Discovery, Evaluation and Decision storage that saves each Scrape Run at once.
+    """In-memory storage for every module that saves each Scrape Run at once.
 
     Loading and saving yield to the event loop, as real database calls do, so
     runs that should not overlap are caught when they do.
@@ -144,7 +149,7 @@ class FakeDiscoveryRepository:
         self.runs.append(record)
         for vacancy in record.new_vacancies:
             self.vacancies[(record.company, vacancy.vacancy_id)] = FakeStoredVacancy(
-                vacancy, dict(vacancy.fields)
+                vacancy, dict(vacancy.fields), source_id=record.source_id
             )
         for revision in record.revisions:
             self.vacancies[(record.company, revision.vacancy_id)].fields.update(revision.fields)
@@ -244,6 +249,32 @@ class FakeDiscoveryRepository:
         assessed.sort(key=lambda vacancy: vacancy.assessment.assessed_at, reverse=True)
         return assessed[:limit]
 
+    async def load_shortlisted_vacancy(self, key: VacancyKey) -> ShortlistedVacancy | None:
+        """Return one Vacancy if it is shortlisted.
+
+        Args:
+            key: Identity of the Vacancy.
+
+        Returns:
+            The Vacancy, or ``None`` when it is unknown or not shortlisted.
+        """
+        await asyncio.sleep(0)
+        stored = self.vacancies.get((key.company, key.vacancy_id))
+        if stored is None or stored.status != "shortlisted":
+            return None
+        return ShortlistedVacancy(
+            key, stored.source_id, dict(stored.fields), stored.record.description
+        )
+
+    async def save_application_pack(self, pack: ApplicationPack) -> None:
+        """Store Application Pack metadata with its Vacancy.
+
+        Args:
+            pack: The metadata to save.
+        """
+        await asyncio.sleep(0)
+        self.vacancies[(pack.key.company, pack.key.vacancy_id)].application_pack = pack
+
 
 class FakeProfileRepository:
     """In-memory storage of Profile snapshots, keyed by version."""
@@ -269,7 +300,7 @@ class FakeProfileRepository:
 
 
 class FakeNotifier:
-    """Notifier that keeps every message it is asked to send, and its buttons."""
+    """Notifier that keeps every message and file it is asked to send, and the buttons."""
 
     def __init__(self, fail_on: str | None = None) -> None:
         """Create the notifier with no messages.
@@ -279,6 +310,7 @@ class FakeNotifier:
         """
         self.messages: list[str] = []
         self.buttons: list[tuple[DecisionButton, ...]] = []
+        self.documents: list[tuple[str, bytes]] = []
         self.fail_on = fail_on
 
     async def send_message(self, text: str, buttons: Sequence[DecisionButton] = ()) -> None:
@@ -295,6 +327,15 @@ class FakeNotifier:
             raise ConnectionError("notifier is down")
         self.messages.append(text)
         self.buttons.append(tuple(buttons))
+
+    async def send_document(self, file_name: str, content: bytes) -> None:
+        """Keep the file.
+
+        Args:
+            file_name: The name the file is shown with.
+            content: The file's bytes.
+        """
+        self.documents.append((file_name, content))
 
 
 class FakeChatModel(GenericFakeChatModel):
@@ -335,6 +376,21 @@ class FakeChatModel(GenericFakeChatModel):
         return self
 
 
+def build_tool_call_message(tool_name: str, args: Mapping[str, object]) -> AIMessage:
+    """Build a canned model answer that calls one structured output tool.
+
+    Args:
+        tool_name: Name of the tool, that is of the output schema.
+        args: Arguments of the tool call.
+
+    Returns:
+        The answer with one tool call.
+    """
+    return AIMessage(
+        content="", tool_calls=[{"name": tool_name, "args": dict(args), "id": "call-1"}]
+    )
+
+
 def build_assessment_message(**args: object) -> AIMessage:
     """Build a canned model answer that calls the Assessment tool.
 
@@ -344,9 +400,19 @@ def build_assessment_message(**args: object) -> AIMessage:
     Returns:
         The answer with one tool call.
     """
-    return AIMessage(
-        content="", tool_calls=[{"name": "AssessmentResult", "args": args, "id": "call-1"}]
-    )
+    return build_tool_call_message("AssessmentResult", args)
+
+
+def build_tailoring_message(**args: object) -> AIMessage:
+    """Build a canned model answer that calls the Tailoring tool.
+
+    Args:
+        **args: Arguments of the Tailoring result.
+
+    Returns:
+        The answer with one tool call.
+    """
+    return build_tool_call_message("TailoringResult", args)
 
 
 def build_fake_chat_model(*answers: AIMessage | str | Exception) -> FakeChatModel:

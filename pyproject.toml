@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.28.1",
     "langchain-core>=1.7.3",
     "langchain-openai>=1.7.3",
+    "markdown-pdf>=1.13.3",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
     "pyyaml>=6.0.3",

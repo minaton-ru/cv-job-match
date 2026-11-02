@@ -177,6 +177,15 @@ class Notifier(Protocol):
         """
         ...
 
+    async def send_document(self, file_name: str, content: bytes) -> None:
+        """Send one file to the Candidate.
+
+        Args:
+            file_name: The name the file is shown with.
+            content: The file's bytes.
+        """
+        ...
+
 
 class Evaluation:
     """Assesses waiting Vacancies and tells the Candidate about good ones."""
@@ -362,7 +371,7 @@ async def request_assessment(
     model = llm.with_structured_output(AssessmentResult, method="function_calling")
     messages = [
         SystemMessage(build_profile_prompt(profile)),
-        HumanMessage(build_vacancy_prompt(vacancy)),
+        HumanMessage(build_vacancy_prompt(vacancy.key, vacancy.fields, vacancy.description)),
     ]
     logger.debug("Requesting Assessment of Vacancy %s", vacancy.key.vacancy_id)
     result = await model.ainvoke(messages)
@@ -391,18 +400,22 @@ def build_profile_prompt(profile: ProfileSnapshot) -> str:
     )
 
 
-def build_vacancy_prompt(vacancy: WaitingVacancy) -> str:
-    """Build the user prompt that describes the Vacancy.
+def build_vacancy_prompt(
+    key: VacancyKey, fields: Mapping[str, str | None], description: str | None
+) -> str:
+    """Build the user prompt that describes a Vacancy.
 
     Args:
-        vacancy: The Vacancy to assess.
+        key: Identity of the Vacancy.
+        fields: Its list fields, such as ``title`` and ``url``.
+        description: Its full description, or ``None`` when it has none.
 
     Returns:
         The Company, list fields and description of the Vacancy.
     """
-    lines = [f"Company: {vacancy.key.company}"]
-    lines += [f"{name}: {value}" for name, value in vacancy.fields.items() if value is not None]
-    lines.append(f"\nDescription:\n{vacancy.description or 'none'}")
+    lines = [f"Company: {key.company}"]
+    lines += [f"{name}: {value}" for name, value in fields.items() if value is not None]
+    lines.append(f"\nDescription:\n{description or 'none'}")
     return "\n".join(lines)
 
 

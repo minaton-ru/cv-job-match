@@ -37,7 +37,7 @@ DEFAULT_SCORE_THRESHOLD = 60
 
 ALLOWED_STATUS_CHANGES = {
     "new": frozenset({"shortlisted", "applied", "dismissed"}),
-    "shortlisted": frozenset({"applied", "dismissed"}),
+    "shortlisted": frozenset({"shortlisted", "applied", "dismissed"}),
 }
 RECENT_ASSESSED_LIMIT = 10
 DECISION_BUTTON_LABELS = {
@@ -63,4 +63,27 @@ Preferences: {preferences}
 Excluded Roles: {excluded_roles}
 Strengths: {strengths}
 Weaknesses: {weaknesses}
+"""
+
+TAILORED_RESUME_PDF_NAME = "resume.pdf"
+TAILORED_RESUME_MARKDOWN_NAME = "resume.md"
+RESUME_PAPER_SIZE = "A4"
+RESUME_PDF_CSS = """\
+body { font-family: sans-serif; font-size: 11pt; line-height: 1.4; }
+h1 { font-size: 20pt; margin-bottom: 4pt; }
+h2 { font-size: 14pt; margin-top: 12pt; border-bottom: 1px solid #888888; }
+h3 { font-size: 12pt; margin-top: 8pt; }
+li { margin-bottom: 2pt; }
+"""
+
+TAILORING_INSTRUCTIONS = """\
+You tailor the Candidate's master resume and write a cover letter for one job Vacancy.
+Use only facts from the master resume below. You may select, reorder and reword them to fit
+the Vacancy, but never add a fact, skill, employer, date or number the master resume does not
+hold. Return the tailored resume as Markdown and the cover letter as plain text, both in the
+language with the code {language}.
+
+# Master resume
+
+{resume}
 """
