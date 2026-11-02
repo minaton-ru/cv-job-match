@@ -27,6 +27,7 @@ the working directory. Never commit `.env`.
 | `CV_JOB_MATCH_LLM_MODEL`    | not set        | Chat model for Assessments and Tailoring; it must support tool calling. |
 | `CV_JOB_MATCH_LLM_API_KEY`  | not set        | API key of the AI provider.                               |
 | `CV_JOB_MATCH_TELEGRAM_CHAT_ID` | not set    | The only chat the bot answers; not set means it answers none. |
+| `CV_JOB_MATCH_DATABASE_URL` | not set        | PostgreSQL URL with the asyncpg driver, such as `postgresql+asyncpg://user:password@host:5432/name`. |
 
 ### Sources config
 
@@ -346,6 +347,29 @@ logged and stops that Tailoring.
 Tailoring needs a Tailoring repository. Production has none yet, so for now it runs only in tests,
 through fakes. `App.tailoring.wait_for_background_tasks()` waits for every started Tailoring.
 
+### Storage
+
+Everything is stored in PostgreSQL through `PostgresRepository` (Discovery, Evaluation, Decision
+and Tailoring) and `PostgresProfileRepository` in `src/cv_job_match/postgres.py`, which share one
+engine from `create_database_engine(url)`. The schema holds Companies and Sources (mirrored from
+the config by name and ID on every saved Scrape Run), Vacancies (one per Company and site ID),
+Scrape Runs with the IDs each one listed, Revisions, Profile snapshots, Assessments, Pre-filter
+rejections and Application Pack metadata.
+
+A Scrape Run is saved in one transaction: when any change fails, such as a Revision of an unknown
+Vacancy (`VacancyNotFoundError`), nothing of the run is saved. Saving an outcome, a status or an
+Application Pack for an unknown Vacancy raises `VacancyNotFoundError` too.
+
+Migrations are Alembic scripts in `src/cv_job_match/migrations/`. To create or update the schema:
+
+```sh
+CV_JOB_MATCH_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/cv_job_match \
+    uv run alembic upgrade head
+```
+
+`migrate_database(url)` does the same from code. `build_app` does not wire the PostgreSQL
+repositories yet, so production still runs without a database.
+
 ### Logs
 
 Every log of the service, from `CV_JOB_MATCH_LOG_LEVEL` up, goes to `cv_job_match.log` in the working directory.
@@ -370,6 +394,19 @@ in-memory stores, `FakeNotifier` for sent messages, their buttons and sent files
 and `tailoring` repositories, so all of them share one store. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
 directory with a synthetic `profile/` folder.
 
+`tests/test_repository_contract.py` runs one contract suite against both the in-memory fakes and
+PostgreSQL, so the fakes keep behaving like the database. Its `postgres` tests are skipped unless
+`CV_JOB_MATCH_TEST_DATABASE_URL` is set. They drop and migrate the schema of that database, so
+point it at a throwaway one, for example:
+
+```sh
+docker run -d --rm --name cv-job-match-test-db -e POSTGRES_PASSWORD=test \
+    -e POSTGRES_DB=cv_job_match_test -p 55432:5432 postgres:17
+CV_JOB_MATCH_TEST_DATABASE_URL=postgresql+asyncpg://postgres:test@localhost:55432/cv_job_match_test \
+    uv run pytest -q
+uv run pytest -q -m postgres   # only the PostgreSQL contract tests
+```
+
 | Path                                 | Holds                                             |
 | ------------------------------------ | ------------------------------------------------- |
 | `src/cv_job_match/app.py`            | `App` and the `build_app` factory                 |
@@ -382,6 +419,9 @@ directory with a synthetic `profile/` folder.
 | `src/cv_job_match/bot.py`            | `DecisionBot`, the chat handlers for buttons and `/list` |
 | `src/cv_job_match/tailoring.py`      | `Tailoring` (`start_tailoring`, `tailor_application`), the Application Pack metadata, the PDF template rendering and the `TailoringRepository` interface |
 | `src/cv_job_match/prefilter.py`      | `find_prefilter_reason`, the Pre-filter keyword rules |
+| `src/cv_job_match/postgres.py`       | PostgreSQL repositories, `create_database_engine` and `migrate_database` |
+| `src/cv_job_match/db_schema.py`      | The PostgreSQL schema as SQLAlchemy tables        |
+| `src/cv_job_match/migrations/`       | Alembic migrations; `alembic.ini` is at the root  |
 | `src/cv_job_match/chat_model.py`     | `create_chat_model` from the `CV_JOB_MATCH_LLM_*` settings |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |
 | `src/cv_job_match/http_client.py`    | `HttpClient` seam and `PoliteHttpClient`          |
