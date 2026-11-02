@@ -9,7 +9,9 @@ from cv_job_match.adapters.embedded_state import EmbeddedStateAdapter
 from cv_job_match.adapters.html_css import HtmlCssAdapter
 from cv_job_match.adapters.json_endpoint import JsonEndpointAdapter
 from cv_job_match.alerts import send_suspect_run_alerts
+from cv_job_match.bot import DecisionBot
 from cv_job_match.chat_model import create_chat_model
+from cv_job_match.decisions import DecisionRepository, Decisions
 from cv_job_match.discovery import (
     Discovery,
     DiscoveryReport,
@@ -35,11 +37,13 @@ class Repositories:
         discovery: Storage of Scrape Runs and the Vacancies they found.
         profile: Storage of Profile snapshots, if any.
         evaluation: Storage of waiting Vacancies and their Assessments, if any.
+        decision: Storage of the Candidate's decisions about Vacancies, if any.
     """
 
     discovery: DiscoveryRepository
     profile: ProfileRepository | None = None
     evaluation: EvaluationRepository | None = None
+    decision: DecisionRepository | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,7 @@ class App:
     ``Discovery.run_due`` raises and only ``check_source`` works, and saving a
     Profile snapshot raises too. Evaluation raises without its repository,
     ``llm`` or ``notifier``, and so does the daily tick without ``notifier``.
+    Decisions raise without their repository.
 
     Attributes:
         settings: Settings the app was built with.
@@ -79,6 +84,8 @@ class App:
         discovery: Checks Sources for Vacancies.
         profile: The Candidate Profile loaded at startup.
         evaluation: Assesses waiting Vacancies and sends good matches.
+        decisions: Moves Vacancies along the statuses the Candidate chooses.
+        bot: Handlers for the Candidate's chat.
     """
 
     settings: Settings
@@ -91,6 +98,8 @@ class App:
     discovery: Discovery
     profile: CandidateProfile
     evaluation: Evaluation
+    decisions: Decisions
+    bot: DecisionBot
 
     async def run_tick(self) -> TickReport:
         """Run the daily pipeline: Discovery, alerts, then Evaluation of waiting Vacancies.
@@ -178,6 +187,7 @@ def build_app(
         "html_css": HtmlCssAdapter(http),
         "embedded_state": EmbeddedStateAdapter(http),
     }
+    decisions = Decisions(repos.decision if repos else None)
     return App(
         settings=settings,
         sources=sources,
@@ -189,4 +199,6 @@ def build_app(
         discovery=Discovery(sources, adapters, repos.discovery if repos else None, clock),
         profile=CandidateProfile(snapshot, repos.profile if repos else None),
         evaluation=Evaluation(snapshot, repos.evaluation if repos else None, llm, notifier, clock),
+        decisions=decisions,
+        bot=DecisionBot(decisions, settings.telegram_chat_id),
     )

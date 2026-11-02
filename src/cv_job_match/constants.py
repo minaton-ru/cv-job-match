@@ -35,6 +35,17 @@ RESUME_FILE_NAME = "resume.md"
 CRITERIA_FILE_NAME = "criteria.yaml"
 DEFAULT_SCORE_THRESHOLD = 60
 
+ALLOWED_STATUS_CHANGES = {
+    "new": frozenset({"shortlisted", "applied", "dismissed"}),
+    "shortlisted": frozenset({"applied", "dismissed"}),
+}
+RECENT_ASSESSED_LIMIT = 10
+DECISION_BUTTON_LABELS = {
+    "shortlisted": "Shortlist",
+    "applied": "Mark applied",
+    "dismissed": "Dismiss",
+}
+
 ASSESSMENT_INSTRUCTIONS = """\
 You assess how well one job Vacancy fits the Candidate described below.
 Return a score from 0 to 100, a verdict (apply, maybe or skip), the Candidate's strengths

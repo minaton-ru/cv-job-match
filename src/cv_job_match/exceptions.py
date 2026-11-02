@@ -39,3 +39,11 @@ class DependencyNotConfiguredError(RuntimeError):
 
 class InvalidAssessmentError(ValueError):
     """Raised when the chat model returns no valid Assessment."""
+
+
+class VacancyNotFoundError(LookupError):
+    """Raised when a decision names a Vacancy that is not known."""
+
+
+class StatusTransitionError(ValueError):
+    """Raised when a decision would move a Vacancy along a disallowed status change."""
