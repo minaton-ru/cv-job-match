@@ -112,7 +112,7 @@ async def test_button_moves_vacancy_along_allowed_transition(
 
 @pytest.mark.parametrize(
     ("status", "decision"),
-    [("applied", "shortlisted"), ("dismissed", "applied"), ("shortlisted", "shortlisted")],
+    [("applied", "shortlisted"), ("dismissed", "applied")],
 )
 async def test_button_refuses_disallowed_transition(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, status: VacancyStatus, decision: Decision

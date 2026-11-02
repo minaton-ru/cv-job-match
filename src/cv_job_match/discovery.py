@@ -429,6 +429,32 @@ class Discovery:
         logger.info("Source %s lists %d Vacancies", source.id, len(listed))
         return RunSummary(source.id, len(listed), tuple(previews), None)
 
+    async def fetch_current_description(
+        self, source_id: str, vacancy_id: str, fields: Mapping[str, str | None]
+    ) -> str | None:
+        """Fetch the current description of a known Vacancy from its Source.
+
+        Args:
+            source_id: Id of the Source that recorded the Vacancy.
+            vacancy_id: The site's own ID for the Vacancy.
+            fields: The Vacancy's latest known list fields.
+
+        Returns:
+            The description, or ``None`` when the Source has no description configured.
+
+        Raises:
+            UnknownSourceError: If no Source has this id.
+            UnsupportedTechniqueError: If no adapter handles the Source's technique.
+            SourceFetchError: If the description cannot be fetched or read.
+            SourcesConfigError: If the Source's technique options are invalid.
+        """
+        source = self.find_source(source_id)
+        adapter = self.find_adapter(source)
+        logger.debug(
+            "Fetching the current description of Vacancy %s of Source %s", vacancy_id, source_id
+        )
+        return await adapter.fetch_vacancy_description(source, ListedVacancy(vacancy_id, fields))
+
     def find_source(self, source_id: str) -> SourceConfig:
         """Find a Source by id.
 

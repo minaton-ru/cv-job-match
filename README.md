@@ -24,7 +24,7 @@ the working directory. Never commit `.env`.
 | `CV_JOB_MATCH_LOG_LEVEL`    | `DEBUG`        | Lowest level logged: DEBUG, INFO, WARNING, ERROR or CRITICAL. |
 | `CV_JOB_MATCH_EXTRA_CA_PATH` | not set       | PEM file with an extra root certificate, trusted only for the hosts of Sources with `extra_ca: true`. |
 | `CV_JOB_MATCH_LLM_BASE_URL` | not set        | Base URL of the OpenAI-compatible AI provider; not set means the OpenAI API. |
-| `CV_JOB_MATCH_LLM_MODEL`    | not set        | Chat model for Assessments; it must support tool calling.  |
+| `CV_JOB_MATCH_LLM_MODEL`    | not set        | Chat model for Assessments and Tailoring; it must support tool calling. |
 | `CV_JOB_MATCH_LLM_API_KEY`  | not set        | API key of the AI provider.                               |
 | `CV_JOB_MATCH_TELEGRAM_CHAT_ID` | not set    | The only chat the bot answers; not set means it answers none. |
 
@@ -305,7 +305,8 @@ from any chat other than `CV_JOB_MATCH_TELEGRAM_CHAT_ID`, which is ignored and l
 
 Buttons delegate to `App.decisions` (`shortlist_vacancy`, `mark_applied`, `dismiss_vacancy`).
 Only these status changes are allowed: new to shortlisted, applied or dismissed, and shortlisted
-to applied or dismissed. Anything else, such as applied to shortlisted, is refused and logged,
+to applied or dismissed. Shortlisting a Shortlisted Vacancy again is allowed, keeps its status and
+retries Tailoring. Anything else, such as applied to shortlisted, is refused and logged,
 leaves the status unchanged, and the reply says why. A button for an unknown Vacancy replies that
 it is not known.
 
@@ -317,6 +318,33 @@ its score, verdict and status, or says there are none yet.
 
 Decisions need a Decision repository. Production has none yet, and no Telegram library is wired
 yet, so for now they run only in tests, through fakes.
+
+### Tailoring
+
+Every Shortlist button press that is accepted starts Tailoring of the Vacancy as a background
+task, `App.tailoring.start_tailoring(key)`, and the reply is sent right away. A press while that
+Vacancy's Tailoring is still running starts no second one.
+`tailor_application(key)` then:
+
+1. Fetches the Vacancy's description again from the Source that recorded it (see
+   [ADR 0004](docs/adr/0004-fetch-description-once-refresh-before-tailoring.md)). When that
+   Source has no `detail` options, the description saved at discovery is used.
+2. Asks the chat model, with structured output, for the tailored resume in Markdown and the cover
+   letter, in the Profile's `language`. The prompt allows it only to select, reorder and reword
+   facts from the master resume, never to add new ones.
+3. Renders the resume PDF from a fixed template: A4 paper and the CSS in `constants.py`.
+
+The Candidate gets the Application Pack through the `Notifier`: `resume.pdf` and `resume.md` as
+files, then the cover letter as a plain text message. Its metadata (the Vacancy, the Profile
+version, the language and the time) is saved through the Tailoring repository. When the
+description cannot be fetched again or the AI call fails, the Candidate gets a message such as
+`Tailoring of Vacancy v1 of Example Co failed: the AI call failed. Press Shortlist to try again.`,
+nothing is saved, and pressing Shortlist again retries. There is no second AI verification pass.
+Any other error, such as a failed send or a missing repository, chat model or notifier, is
+logged and stops that Tailoring.
+
+Tailoring needs a Tailoring repository. Production has none yet, so for now it runs only in tests,
+through fakes. `App.tailoring.wait_for_background_tasks()` waits for every started Tailoring.
 
 ### Logs
 
@@ -336,9 +364,10 @@ Everything is wired by one factory, `build_app(settings, *, repos, llm, http, no
 in `src/cv_job_match/app.py`. Production passes only settings, and tests pass Fake classes for
 any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned responses per URL,
 `Repositories(discovery=FakeDiscoveryRepository(), profile=FakeProfileRepository())` for
-in-memory stores, `FakeNotifier` for sent messages and their buttons, or `FakeChatModel`, built by
-`build_fake_chat_model` with answers from `build_assessment_message`. `FakeDiscoveryRepository`
-also serves as the `evaluation` and `decision` repositories, so all of them share one store. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
+in-memory stores, `FakeNotifier` for sent messages, their buttons and sent files, or
+`FakeChatModel`, built by `build_fake_chat_model` with answers from `build_assessment_message` or
+`build_tailoring_message`. `FakeDiscoveryRepository` also serves as the `evaluation`, `decision`
+and `tailoring` repositories, so all of them share one store. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
 directory with a synthetic `profile/` folder.
 
 | Path                                 | Holds                                             |
@@ -351,6 +380,7 @@ directory with a synthetic `profile/` folder.
 | `src/cv_job_match/evaluation.py`     | `Evaluation` (`evaluate_waiting`, `evaluate_vacancy`), the Assessment schema, the repository and `Notifier` interfaces, and `DecisionButton` |
 | `src/cv_job_match/decisions.py`      | `Decisions` (status changes and recent Assessed Vacancies) and the `DecisionRepository` interface |
 | `src/cv_job_match/bot.py`            | `DecisionBot`, the chat handlers for buttons and `/list` |
+| `src/cv_job_match/tailoring.py`      | `Tailoring` (`start_tailoring`, `tailor_application`), the Application Pack metadata, the PDF template rendering and the `TailoringRepository` interface |
 | `src/cv_job_match/prefilter.py`      | `find_prefilter_reason`, the Pre-filter keyword rules |
 | `src/cv_job_match/chat_model.py`     | `create_chat_model` from the `CV_JOB_MATCH_LLM_*` settings |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |

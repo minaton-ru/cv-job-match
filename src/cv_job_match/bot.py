@@ -6,25 +6,30 @@ from cv_job_match.constants import TITLE_FIELD
 from cv_job_match.decisions import AssessedVacancy, Decision, Decisions, describe_vacancy
 from cv_job_match.evaluation import VacancyKey
 from cv_job_match.exceptions import StatusTransitionError, VacancyNotFoundError
+from cv_job_match.tailoring import Tailoring
 
 logger = logging.getLogger(__name__)
 
 
 class DecisionBot:
-    """Thin handlers that answer the configured chat and delegate to Decisions."""
+    """Thin handlers that answer the configured chat and delegate to Decisions and Tailoring."""
 
-    def __init__(self, decisions: Decisions, chat_id: int | None) -> None:
+    def __init__(self, decisions: Decisions, tailoring: Tailoring, chat_id: int | None) -> None:
         """Create the bot handlers.
 
         Args:
             decisions: Changes Vacancy statuses.
+            tailoring: Makes the Application Pack of a Shortlisted Vacancy.
             chat_id: The only chat the bot answers, or ``None`` to answer none.
         """
         self.decisions = decisions
+        self.tailoring = tailoring
         self.chat_id = chat_id
 
     async def handle_button(self, chat_id: int, decision: Decision, key: VacancyKey) -> str | None:
         """Apply the decision of a pressed Vacancy button.
+
+        Shortlisting, again too, starts Tailoring in the background.
 
         Args:
             chat_id: The chat the button was pressed in.
@@ -46,6 +51,8 @@ class DecisionBot:
             await handlers[decision](key)
         except (VacancyNotFoundError, StatusTransitionError) as error:
             return str(error)
+        if decision == "shortlisted":
+            self.tailoring.start_tailoring(key)
         logger.info("Confirmed button %s for %s", decision, describe_vacancy(key))
         return f"{describe_vacancy(key)} is now {decision}."
 

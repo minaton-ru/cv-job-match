@@ -47,3 +47,7 @@ class VacancyNotFoundError(LookupError):
 
 class StatusTransitionError(ValueError):
     """Raised when a decision would move a Vacancy along a disallowed status change."""
+
+
+class InvalidTailoringError(ValueError):
+    """Raised when the chat model returns no valid Application Pack."""
