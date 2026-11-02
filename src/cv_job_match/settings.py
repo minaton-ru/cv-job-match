@@ -41,6 +41,7 @@ class Settings(BaseSettings):
             ``None`` for the OpenAI API itself.
         llm_model: Chat model that makes Assessments.
         llm_api_key: API key of the AI provider.
+        telegram_chat_id: The only chat the bot answers, or ``None`` to answer none.
     """
 
     model_config = SettingsConfigDict(env_prefix="CV_JOB_MATCH_", env_file=".env", extra="ignore")
@@ -52,3 +53,4 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None
     llm_model: str | None = None
     llm_api_key: SecretStr | None = None
+    telegram_chat_id: int | None = None

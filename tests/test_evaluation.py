@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
 from cv_job_match.app import App, Repositories, build_app
-from cv_job_match.evaluation import VacancyKey
+from cv_job_match.evaluation import DecisionButton, VacancyKey
 from cv_job_match.exceptions import DependencyNotConfiguredError, RepositoryNotConfiguredError
 from cv_job_match.http_client import HttpResponse
 from cv_job_match.settings import Settings
@@ -117,6 +117,12 @@ async def test_run_tick_assesses_new_vacancy_and_notifies_from_threshold(
         f"Score {score}, verdict: apply\nStrengths: Python\nGaps: Go\nExclusions: none"
     )
     assert notifier.messages == ([expected] if is_sent else [])
+    buttons = (
+        DecisionButton("Shortlist", "shortlisted", VACANCY_KEY),
+        DecisionButton("Mark applied", "applied", VACANCY_KEY),
+        DecisionButton("Dismiss", "dismissed", VACANCY_KEY),
+    )
+    assert notifier.buttons == ([buttons] if is_sent else [])
     assert f"Assessed Vacancy v1 of Alpha Corp: score {score}, verdict apply" in caplog.text
 
 

@@ -1,7 +1,7 @@
 """Evaluation: Pre-filter and AI Assessment of waiting Vacancies, and messages about good ones."""
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Literal, Protocol
@@ -10,7 +10,11 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from cv_job_match.constants import ASSESSMENT_INSTRUCTIONS, TITLE_FIELD
+from cv_job_match.constants import (
+    ASSESSMENT_INSTRUCTIONS,
+    DECISION_BUTTON_LABELS,
+    TITLE_FIELD,
+)
 from cv_job_match.exceptions import (
     DependencyNotConfiguredError,
     InvalidAssessmentError,
@@ -21,6 +25,8 @@ from cv_job_match.profile import ProfileSnapshot
 from cv_job_match.utils.clock import Clock
 
 logger = logging.getLogger(__name__)
+
+Decision = Literal["shortlisted", "applied", "dismissed"]
 
 
 @dataclass(frozen=True)
@@ -111,7 +117,8 @@ class EvaluationRepository(Protocol):
 
         Returns:
             Saved Vacancies that are not Baseline or Closed Vacancies, have no
-            Assessment and were not filtered out by the Pre-filter.
+            Assessment, were not filtered out by the Pre-filter and have no
+            decision by the Candidate.
         """
         ...
 
@@ -143,14 +150,30 @@ class EvaluationRepository(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class DecisionButton:
+    """A message button that moves a Vacancy to the status the Candidate chooses.
+
+    Attributes:
+        label: The button text.
+        decision: The status the button moves the Vacancy to.
+        key: Identity of the Vacancy.
+    """
+
+    label: str
+    decision: Decision
+    key: VacancyKey
+
+
 class Notifier(Protocol):
     """Sends messages to the Candidate."""
 
-    async def send_message(self, text: str) -> None:
+    async def send_message(self, text: str, buttons: Sequence[DecisionButton] = ()) -> None:
         """Send one message to the Candidate.
 
         Args:
             text: The message text.
+            buttons: Buttons shown under the message, if any.
         """
         ...
 
@@ -304,7 +327,9 @@ async def send_assessment_message(
     """
     key = vacancy.key
     try:
-        await notifier.send_message(format_assessment_message(vacancy, result))
+        await notifier.send_message(
+            format_assessment_message(vacancy, result), build_decision_buttons(key)
+        )
     except Exception as error:
         logger.error(
             "Assessed Vacancy %s of %s, but the message was not sent: %s",
@@ -401,6 +426,20 @@ def format_assessment_message(vacancy: WaitingVacancy, result: AssessmentResult)
             f"Gaps: {join_items(result.gaps)}",
             f"Exclusions: {join_items(result.exclusions)}",
         ]
+    )
+
+
+def build_decision_buttons(key: VacancyKey) -> tuple[DecisionButton, ...]:
+    """Build the buttons to shortlist, mark as applied and dismiss a Vacancy.
+
+    Args:
+        key: Identity of the Vacancy.
+
+    Returns:
+        One button per decision.
+    """
+    return tuple(
+        DecisionButton(label, decision, key) for decision, label in DECISION_BUTTON_LABELS.items()
     )
 
 

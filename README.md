@@ -26,6 +26,7 @@ the working directory. Never commit `.env`.
 | `CV_JOB_MATCH_LLM_BASE_URL` | not set        | Base URL of the OpenAI-compatible AI provider; not set means the OpenAI API. |
 | `CV_JOB_MATCH_LLM_MODEL`    | not set        | Chat model for Assessments; it must support tool calling.  |
 | `CV_JOB_MATCH_LLM_API_KEY`  | not set        | API key of the AI provider.                               |
+| `CV_JOB_MATCH_TELEGRAM_CHAT_ID` | not set    | The only chat the bot answers; not set means it answers none. |
 
 ### Sources config
 
@@ -255,7 +256,8 @@ browser-like User-Agent. Redirects are not followed; a redirected list shows up 
 
 `App.run_tick()` is the daily pipeline: it runs `Discovery.run_due()`, sends the alerts
 described below, then `Evaluation.evaluate_waiting()`, which pre-filters and assesses every
-saved Vacancy that is waiting: not a Baseline Vacancy, not a Closed Vacancy, not yet assessed and not filtered out.
+saved Vacancy that is waiting: not a Baseline Vacancy, not a Closed Vacancy, not yet assessed,
+not filtered out and not shortlisted, applied or dismissed.
 A Closed Vacancy that is reopened before it is assessed waits again. Waiting Vacancies are
 read from the repository, so a Vacancy saved before a crash is assessed on the next tick. `evaluate_vacancy(key)` assesses one
 Vacancy, identified by its Company and site ID, and does nothing when it is not waiting.
@@ -277,8 +279,9 @@ structured output is logged, nothing is saved, and the Vacancy keeps waiting for
 
 When the score is at or above the Profile's `score_threshold`, the Candidate gets one message
 through the `Notifier` with the Company, title, link, score, verdict, strengths, gaps and
-exclusions. The Assessment is saved before the message is sent, so a failed send is logged
-as an error, is not retried, and does not stop the tick.
+exclusions, and buttons to shortlist, mark as applied and dismiss it (see Decisions). The
+Assessment is saved before the message is sent, so a failed send is logged as an error, is not
+retried, and does not stop the tick.
 
 The chat model is created from the `CV_JOB_MATCH_LLM_*` settings through any OpenAI-compatible
 API. Without a model or API key, `App.llm` is `None`. Evaluation needs a repository, a chat model
@@ -292,6 +295,28 @@ naming the Source, its Company and the reason, such as
 `Suspect Scrape Run of Source example-backend (Example Corp): request failed: connection refused`.
 A failed send is logged as an error, is not retried, and does not stop the alerts for other
 Sources or Evaluation. Without a notifier the tick raises before Discovery starts.
+
+### Decisions
+
+The Candidate acts on Vacancies from the chat. `App.bot` holds thin handlers that do not depend
+on a chat library: `handle_button(chat_id, decision, key)` for a Vacancy button and
+`handle_list_command(chat_id)` for `/list`. Each returns the reply text, or `None` for an update
+from any chat other than `CV_JOB_MATCH_TELEGRAM_CHAT_ID`, which is ignored and logged.
+
+Buttons delegate to `App.decisions` (`shortlist_vacancy`, `mark_applied`, `dismiss_vacancy`).
+Only these status changes are allowed: new to shortlisted, applied or dismissed, and shortlisted
+to applied or dismissed. Anything else, such as applied to shortlisted, is refused and logged,
+leaves the status unchanged, and the reply says why. A button for an unknown Vacancy replies that
+it is not known.
+
+A Vacancy with a decision no longer waits for Assessment, and an Assessed one never waits
+again, so a Dismissed or Applied Vacancy sends no message after a Revision or reopening.
+
+`/list` shows the ten most recently Assessed Vacancies, below the threshold included, each with
+its score, verdict and status, or says there are none yet.
+
+Decisions need a Decision repository. Production has none yet, and no Telegram library is wired
+yet, so for now they run only in tests, through fakes.
 
 ### Logs
 
@@ -311,9 +336,9 @@ Everything is wired by one factory, `build_app(settings, *, repos, llm, http, no
 in `src/cv_job_match/app.py`. Production passes only settings, and tests pass Fake classes for
 any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned responses per URL,
 `Repositories(discovery=FakeDiscoveryRepository(), profile=FakeProfileRepository())` for
-in-memory stores, `FakeNotifier` for sent messages, or `FakeChatModel`, built by
+in-memory stores, `FakeNotifier` for sent messages and their buttons, or `FakeChatModel`, built by
 `build_fake_chat_model` with answers from `build_assessment_message`. `FakeDiscoveryRepository`
-also serves as the `evaluation` repository, so both share one store. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
+also serves as the `evaluation` and `decision` repositories, so all of them share one store. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
 directory with a synthetic `profile/` folder.
 
 | Path                                 | Holds                                             |
@@ -323,7 +348,9 @@ directory with a synthetic `profile/` folder.
 | `src/cv_job_match/sources.py`        | Sources config schema and loader                  |
 | `src/cv_job_match/discovery.py`      | `Discovery` (`run_due`, `check_source`), its pure rules (`detect_changes`, `plan_detail_fetches`), and the adapter and repository interfaces |
 | `src/cv_job_match/profile.py`        | `load_profile`, `CandidateProfile` and the `ProfileRepository` interface |
-| `src/cv_job_match/evaluation.py`     | `Evaluation` (`evaluate_waiting`, `evaluate_vacancy`), the Assessment schema, and the repository and `Notifier` interfaces |
+| `src/cv_job_match/evaluation.py`     | `Evaluation` (`evaluate_waiting`, `evaluate_vacancy`), the Assessment schema, the repository and `Notifier` interfaces, and `DecisionButton` |
+| `src/cv_job_match/decisions.py`      | `Decisions` (status changes and recent Assessed Vacancies) and the `DecisionRepository` interface |
+| `src/cv_job_match/bot.py`            | `DecisionBot`, the chat handlers for buttons and `/list` |
 | `src/cv_job_match/prefilter.py`      | `find_prefilter_reason`, the Pre-filter keyword rules |
 | `src/cv_job_match/chat_model.py`     | `create_chat_model` from the `CV_JOB_MATCH_LLM_*` settings |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |
