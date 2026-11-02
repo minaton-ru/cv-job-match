@@ -20,7 +20,7 @@ from cv_job_match.evaluation import (
     VacancyKey,
     WaitingVacancy,
 )
-from cv_job_match.exceptions import HttpRequestError
+from cv_job_match.exceptions import HttpRequestError, VacancyNotFoundError
 from cv_job_match.http_client import HttpRequest, HttpResponse
 from cv_job_match.profile import ProfileSnapshot
 from cv_job_match.tailoring import ApplicationPack, ShortlistedVacancy
@@ -134,18 +134,39 @@ class FakeDiscoveryRepository:
         """
         return {run.source_id: run.started_at for run in self.runs}
 
+    def find_stored_vacancy(self, key: VacancyKey) -> FakeStoredVacancy:
+        """Return a stored Vacancy.
+
+        Args:
+            key: Identity of the Vacancy.
+
+        Returns:
+            The stored Vacancy.
+
+        Raises:
+            VacancyNotFoundError: If the Vacancy is unknown.
+        """
+        stored = self.vacancies.get((key.company, key.vacancy_id))
+        if stored is None:
+            raise VacancyNotFoundError(f"unknown Vacancy {key.vacancy_id} of {key.company}")
+        return stored
+
     async def save_run(self, record: RunRecord) -> None:
-        """Save a run and all its changes, or nothing when ``save_error`` is set.
+        """Save a run and all its changes, or nothing when any change fails.
 
         Args:
             record: The run to save.
 
         Raises:
             Exception: The ``save_error``, when one is set.
+            VacancyNotFoundError: If a change names an unknown Vacancy.
         """
         await asyncio.sleep(0)
         if self.save_error is not None:
             raise self.save_error
+        changed_ids = {revision.vacancy_id for revision in record.revisions}
+        for vacancy_id in sorted(changed_ids | record.closed_ids | record.reopened_ids):
+            self.find_stored_vacancy(VacancyKey(record.company, vacancy_id))
         self.runs.append(record)
         for vacancy in record.new_vacancies:
             self.vacancies[(record.company, vacancy.vacancy_id)] = FakeStoredVacancy(
@@ -195,8 +216,7 @@ class FakeDiscoveryRepository:
             assessment: The Assessment to save.
         """
         await asyncio.sleep(0)
-        key = assessment.key
-        self.vacancies[(key.company, key.vacancy_id)].assessment = assessment
+        self.find_stored_vacancy(assessment.key).assessment = assessment
 
     async def save_prefilter_rejection(self, rejection: PrefilterRejection) -> None:
         """Store a Pre-filter rejection with its Vacancy.
@@ -205,8 +225,7 @@ class FakeDiscoveryRepository:
             rejection: The rejection to save.
         """
         await asyncio.sleep(0)
-        key = rejection.key
-        self.vacancies[(key.company, key.vacancy_id)].rejection = rejection
+        self.find_stored_vacancy(rejection.key).rejection = rejection
 
     async def load_status(self, key: VacancyKey) -> VacancyStatus | None:
         """Return the status of one Vacancy.
@@ -229,7 +248,7 @@ class FakeDiscoveryRepository:
             status: Its new status.
         """
         await asyncio.sleep(0)
-        self.vacancies[(key.company, key.vacancy_id)].status = status
+        self.find_stored_vacancy(key).status = status
 
     async def load_recent_assessed(self, limit: int) -> list[AssessedVacancy]:
         """Return the most recently Assessed Vacancies, whatever their score.
@@ -273,7 +292,7 @@ class FakeDiscoveryRepository:
             pack: The metadata to save.
         """
         await asyncio.sleep(0)
-        self.vacancies[(pack.key.company, pack.key.vacancy_id)].application_pack = pack
+        self.find_stored_vacancy(pack.key).application_pack = pack
 
 
 class FakeProfileRepository:

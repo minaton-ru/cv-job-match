@@ -68,8 +68,8 @@ class TickReport:
 class App:
     """The wired application.
 
-    The ``repos`` and ``notifier`` dependencies have no production
-    implementation yet, so they stay ``None`` in production, and ``llm`` is
+    ``build_app`` wires no production ``repos`` (the PostgreSQL ones exist
+    but are not wired yet) or ``notifier``, so they stay ``None`` in production, and ``llm`` is
     ``None`` until its model and API key are set. Without ``repos``,
     ``Discovery.run_due`` raises and only ``check_source`` works, and saving a
     Profile snapshot raises too. Evaluation raises without its repository,

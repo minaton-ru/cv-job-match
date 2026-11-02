@@ -34,7 +34,7 @@ class RepositoryNotConfiguredError(RuntimeError):
 
 
 class DependencyNotConfiguredError(RuntimeError):
-    """Raised when a module needs a chat model or notifier that the app was built without."""
+    """Raised when a module needs a chat model, notifier or database URL it was not given."""
 
 
 class InvalidAssessmentError(ValueError):
@@ -42,7 +42,7 @@ class InvalidAssessmentError(ValueError):
 
 
 class VacancyNotFoundError(LookupError):
-    """Raised when a decision names a Vacancy that is not known."""
+    """Raised when a decision, an outcome or a Scrape Run names a Vacancy that is not known."""
 
 
 class StatusTransitionError(ValueError):
