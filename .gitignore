@@ -1,6 +1,6 @@
 # Private data: never commit
 profile/
-sources.yaml
+sources*.yaml
 .env
 
 # Tooling
