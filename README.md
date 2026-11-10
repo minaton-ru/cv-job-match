@@ -26,6 +26,7 @@ the working directory. Never commit `.env`.
 | `CV_JOB_MATCH_LLM_BASE_URL` | not set        | Base URL of the OpenAI-compatible AI provider; not set means the OpenAI API. |
 | `CV_JOB_MATCH_LLM_MODEL`    | not set        | Chat model for Assessments and Tailoring; it must support tool calling. |
 | `CV_JOB_MATCH_LLM_API_KEY`  | not set        | API key of the AI provider.                               |
+| `CV_JOB_MATCH_TELEGRAM_BOT_TOKEN` | not set   | Token of the Telegram bot.                                |
 | `CV_JOB_MATCH_TELEGRAM_CHAT_ID` | not set    | The only chat the bot answers; not set means it answers none. |
 | `CV_JOB_MATCH_DATABASE_URL` | not set        | PostgreSQL URL with the asyncpg driver, such as `postgresql+asyncpg://user:password@host:5432/name`. |
 
@@ -111,7 +112,7 @@ makes the list fetch fail.
 
 ### `html_css` options
 
-For Sources whose list is server-side HTML. Values are read with CSS selectors; selector syntax
+For Sources whose list is server-side HTML. Values are read with **CSS selectors**; selector syntax
 is checked when the Source is checked. Requests are GET, and one page is read.
 
 ```yaml
@@ -194,8 +195,7 @@ not be blank.
 The Profile version is a SHA-256 hash of both files' text, so the same content always gives the
 same version and any edit, comments included, gives a new one.
 `App.profile.save_snapshot_if_new()` saves the loaded Profile through `ProfileRepository` only
-when its version is new. Production has no Profile repository yet, so for now it runs only in
-tests, through an in-memory fake.
+when its version is new. `serve` calls it at startup.
 
 ## Run
 
@@ -203,6 +203,7 @@ tests, through an in-memory fake.
 uv run cv-job-match check-config                  # validate the config and list the Sources
 uv run cv-job-match --sources other.yaml check-config
 uv run cv-job-match check-source example-backend  # dry-run one Source, saving nothing
+uv run cv-job-match serve                         # run the service (see Deploy)
 ```
 
 Every command exits with code 3 when the Sources config or the Profile is invalid and prints
@@ -246,8 +247,7 @@ saved with all its changes at once, and logged with its status and counts.
 - A failed list fetch, or invalid technique options, is recorded as a suspect run and never
   raises. A repository error does raise.
 
-`run_due` needs a Discovery repository. Production has none yet, so for now it runs only in
-tests, through an in-memory fake.
+`run_due` needs a Discovery repository, which is wired once `CV_JOB_MATCH_DATABASE_URL` is set.
 
 Requests go through `PoliteHttpClient`: at most one request per second per host, with a
 browser-like User-Agent. Redirects are not followed; a redirected list shows up as an
@@ -286,8 +286,7 @@ retried, and does not stop the tick.
 
 The chat model is created from the `CV_JOB_MATCH_LLM_*` settings through any OpenAI-compatible
 API. Without a model or API key, `App.llm` is `None`. Evaluation needs a repository, a chat model
-and a notifier, and raises without any of them. Production has no Evaluation repository or
-real notifier yet, so for now it runs only in tests, through fakes.
+and a notifier, and raises without any of them.
 
 ### Alerts
 
@@ -317,8 +316,11 @@ again, so a Dismissed or Applied Vacancy sends no message after a Revision or re
 `/list` shows the ten most recently Assessed Vacancies, below the threshold included, each with
 its score, verdict and status, or says there are none yet.
 
-Decisions need a Decision repository. Production has none yet, and no Telegram library is wired
-yet, so for now they run only in tests, through fakes.
+Decisions need a Decision repository. In Telegram, the handlers are wired to `/list` and to the
+Vacancy buttons by `create_dispatcher` in `src/cv_job_match/telegram.py`. Telegram allows only
+64 bytes of button data, so a button names the Vacancy's Company by the id of the Company's first
+Source in the config. A button whose Source has since been removed from the config replies that
+it is no longer known.
 
 ### Tailoring
 
@@ -344,8 +346,8 @@ nothing is saved, and pressing Shortlist again retries. There is no second AI ve
 Any other error, such as a failed send or a missing repository, chat model or notifier, is
 logged and stops that Tailoring.
 
-Tailoring needs a Tailoring repository. Production has none yet, so for now it runs only in tests,
-through fakes. `App.tailoring.wait_for_background_tasks()` waits for every started Tailoring.
+Tailoring needs a Tailoring repository. `App.tailoring.wait_for_background_tasks()` waits for
+every started Tailoring.
 
 ### Storage
 
@@ -367,14 +369,66 @@ CV_JOB_MATCH_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/cv_j
     uv run alembic upgrade head
 ```
 
-`migrate_database(url)` does the same from code. `build_app` does not wire the PostgreSQL
-repositories yet, so production still runs without a database.
+`migrate_database(url)` does the same from code, and `serve` runs it at startup. `build_app`
+wires the PostgreSQL repositories once `CV_JOB_MATCH_DATABASE_URL` is set.
 
 ### Logs
 
 Every log of the service, from `CV_JOB_MATCH_LOG_LEVEL` up, goes to `cv_job_match.log` in the working directory.
 The file is rotated at 10 MB, and the three previous files are kept as `cv_job_match.log.1` to
-`.3`. Log files are excluded from Git.
+`.3`. Log files are excluded from Git. `serve` also writes every log to stderr, so Scrape Runs,
+Evaluation and Tailoring show up in the container output (`docker compose logs app`).
+
+## Deploy
+
+The service runs with Docker Compose: one app container, which runs `cv-job-match serve`, and
+PostgreSQL 18. `serve` checks the secrets, migrates the database, saves the Profile snapshot,
+and then runs the Telegram bot and the scheduler in one asyncio event loop. The scheduler runs the
+daily pipeline (`App.run_tick`) once an hour; each Source is still checked only when its interval
+has passed, and a failed tick is logged and retried an hour later.
+
+1. Put the Sources config at `sources.yaml` and the Profile at `profile/` next to
+   `compose.yaml`. Both are mounted read-only into the app container and never built into the
+   image.
+2. Create `.env` next to `compose.yaml` with the variables below, and never commit it.
+3. Start the service:
+
+   ```sh
+   docker compose up -d --build
+   docker compose logs -f app
+   ```
+
+| Variable                         | Needed by | Meaning                                               |
+| -------------------------------- | --------- | ----------------------------------------------------- |
+| `POSTGRES_USER`                  | Compose   | Database user; required.                              |
+| `POSTGRES_PASSWORD`              | Compose   | Database password; required. Use only URL-safe characters, as it goes into the database URL. |
+| `POSTGRES_DB`                    | Compose   | Database name; optional, default `cv_job_match`.      |
+| `CV_JOB_MATCH_TELEGRAM_BOT_TOKEN` | `serve`  | Token of the Telegram bot.                            |
+| `CV_JOB_MATCH_TELEGRAM_CHAT_ID`  | `serve`   | The Candidate's chat.                                 |
+| `CV_JOB_MATCH_LLM_MODEL`         | `serve`   | Chat model for Assessments and Tailoring.             |
+| `CV_JOB_MATCH_LLM_API_KEY`       | `serve`   | API key of the AI provider.                           |
+| `CV_JOB_MATCH_LLM_BASE_URL`      | optional  | See Configure.                                        |
+| `CV_JOB_MATCH_LOG_LEVEL`         | optional  | See Configure.                                        |
+
+Compose builds `CV_JOB_MATCH_DATABASE_URL` from the `POSTGRES_*` variables, so do not set it in
+`.env` for Compose. When a Source uses `extra_ca: true`, mount the certificate file into the app
+container, for example with a `compose.override.yaml`, and point `CV_JOB_MATCH_EXTRA_CA_PATH` at
+its path inside the container.
+
+A missing, empty or whitespace-only `serve` variable stops `serve` with exit code 3 and an error
+that names every missing variable, and so does a bot token that Telegram rejects. A malformed bot
+token stops every command with exit code 3. Compose itself
+refuses to start without `POSTGRES_USER` or `POSTGRES_PASSWORD`.
+
+To update, pull the new code and rebuild; migrations run when the app starts:
+
+```sh
+git pull
+docker compose up -d --build
+```
+
+Editing `sources.yaml` or `profile/` needs only `docker compose restart app`. The database lives
+in the `db-data` volume, which survives rebuilds; `docker compose down -v` deletes it.
 
 ## Develop
 
@@ -390,7 +444,7 @@ any dependency, such as `FakeHttpClient` in `tests/fakes.py` with canned respons
 `Repositories(discovery=FakeDiscoveryRepository(), profile=FakeProfileRepository())` for
 in-memory stores, `FakeNotifier` for sent messages, their buttons and sent files, or
 `FakeChatModel`, built by `build_fake_chat_model` with answers from `build_assessment_message` or
-`build_tailoring_message`. `FakeDiscoveryRepository` also serves as the `evaluation`, `decision`
+`build_tailoring_message`, or `FakeTelegramBot` for `TelegramNotifier`. `FakeDiscoveryRepository` also serves as the `evaluation`, `decision`
 and `tailoring` repositories, so all of them share one store. An autouse fixture in `tests/conftest.py` runs each test in its own temporary
 directory with a synthetic `profile/` folder.
 
@@ -422,6 +476,8 @@ uv run pytest -q -m postgres   # only the PostgreSQL contract tests
 | `src/cv_job_match/postgres.py`       | PostgreSQL repositories, `create_database_engine` and `migrate_database` |
 | `src/cv_job_match/db_schema.py`      | The PostgreSQL schema as SQLAlchemy tables        |
 | `src/cv_job_match/migrations/`       | Alembic migrations; `alembic.ini` is at the root  |
+| `src/cv_job_match/telegram.py`       | `TelegramNotifier`, the Vacancy button data and `create_dispatcher` (aiogram) |
+| `src/cv_job_match/service.py`        | `serve`'s secrets check, scheduler and `run_service` |
 | `src/cv_job_match/chat_model.py`     | `create_chat_model` from the `CV_JOB_MATCH_LLM_*` settings |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |
 | `src/cv_job_match/http_client.py`    | `HttpClient` seam and `PoliteHttpClient`          |

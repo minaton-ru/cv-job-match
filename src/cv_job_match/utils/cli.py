@@ -12,6 +12,7 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from aiogram.exceptions import TelegramUnauthorizedError
 from pydantic import ValidationError
 
 from cv_job_match.app import App, build_app
@@ -23,13 +24,17 @@ from cv_job_match.constants import (
 from cv_job_match.discovery import RunSummary
 from cv_job_match.exceptions import (
     HttpClientSetupError,
+    MissingSecretError,
     ProfileError,
     SourcesConfigError,
+    TelegramSetupError,
     UnknownSourceError,
     UnsupportedTechniqueError,
 )
+from cv_job_match.postgres import migrate_database
+from cv_job_match.service import check_required_secrets, run_service
 from cv_job_match.settings import Settings
-from cv_job_match.utils.logger import configure_file_logging
+from cv_job_match.utils.logger import configure_console_logging, configure_file_logging
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +106,36 @@ def print_run_summary(summary: RunSummary) -> None:
         print(f"Suspect: {summary.suspect_reason}")
 
 
+def serve_forever(app: App, args: argparse.Namespace) -> int:
+    """Migrate the database, then run the Telegram bot and the daily scheduler.
+
+    Logs go to stderr too, so they appear in the container output.
+
+    Args:
+        app: The built application.
+        args: Parsed command-line arguments.
+
+    Returns:
+        0 when the service stops, or 3 when a secret is missing or Telegram
+        rejects the bot token. The error is printed to stderr.
+    """
+    try:
+        check_required_secrets(app.settings)
+    except MissingSecretError as error:
+        print(error, file=sys.stderr)
+        return CONFIG_ERROR_EXIT_CODE
+    configure_console_logging()
+    if app.settings.database_url is not None:
+        migrate_database(app.settings.database_url.get_secret_value())
+    try:
+        asyncio.run(run_service(app))
+    except TelegramUnauthorizedError as error:
+        logger.error("Telegram rejected the bot token: %s", error)
+        print(f"Telegram rejected CV_JOB_MATCH_TELEGRAM_BOT_TOKEN: {error}", file=sys.stderr)
+        return CONFIG_ERROR_EXIT_CODE
+    return 0
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Build the argument parser with every command.
 
@@ -121,6 +156,10 @@ def create_parser() -> argparse.ArgumentParser:
     )
     check_source.add_argument("source_id", help="id of the Source to check")
     check_source.set_defaults(handler=check_source_dry_run)
+    serve = commands.add_parser(
+        "serve", help="migrate the database and run the Telegram bot and the daily scheduler"
+    )
+    serve.set_defaults(handler=serve_forever)
     return parser
 
 
@@ -138,7 +177,8 @@ def run_cli(
 
     Returns:
         The command's exit code, 2 when no command is given, or 3 when the
-        Sources config, the Profile or the HTTP client setup is invalid. The
+        Sources config, the Profile, the HTTP client setup or the Telegram
+        bot token is invalid. The
         error is printed to stderr.
     """
     parser = create_parser()
@@ -151,7 +191,7 @@ def run_cli(
         settings = settings.model_copy(update={"sources_path": args.sources})
     try:
         app = app_factory(settings)
-    except (SourcesConfigError, ProfileError, HttpClientSetupError) as error:
+    except (SourcesConfigError, ProfileError, HttpClientSetupError, TelegramSetupError) as error:
         print(error, file=sys.stderr)
         return CONFIG_ERROR_EXIT_CODE
     logger.info("Running command %s", args.command)

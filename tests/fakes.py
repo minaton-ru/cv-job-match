@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, BaseMessage
@@ -357,6 +358,36 @@ class FakeNotifier:
         self.documents.append((file_name, content))
 
 
+class FakeTelegramBot:
+    """Telegram bot that keeps the arguments of every message and file it is asked to send."""
+
+    def __init__(self) -> None:
+        """Create the bot with nothing sent."""
+        self.messages: list[dict[str, object]] = []
+        self.documents: list[dict[str, object]] = []
+
+    async def send_message(
+        self, chat_id: int, text: str, reply_markup: InlineKeyboardMarkup | None = None
+    ) -> None:
+        """Keep the message.
+
+        Args:
+            chat_id: The chat to send to.
+            text: The message text.
+            reply_markup: Buttons under the message, if any.
+        """
+        self.messages.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
+
+    async def send_document(self, chat_id: int, document: BufferedInputFile) -> None:
+        """Keep the file.
+
+        Args:
+            chat_id: The chat to send to.
+            document: The file.
+        """
+        self.documents.append({"chat_id": chat_id, "document": document})
+
+
 class FakeChatModel(GenericFakeChatModel):
     """LangChain fake chat model with canned answers or errors that accepts tools."""
 
@@ -604,3 +635,29 @@ def build_html_response(body: str, status_code: int = 200) -> HttpResponse:
         The response.
     """
     return HttpResponse(status_code=status_code, text=f"<html><body>{body}</body></html>")
+
+
+class FakeSleep:
+    """Sleep that returns at once and cancels the caller after a number of calls."""
+
+    def __init__(self, stop_after: int) -> None:
+        """Create the sleep.
+
+        Args:
+            stop_after: The call that raises ``CancelledError``.
+        """
+        self.stop_after = stop_after
+        self.delays: list[float] = []
+
+    async def __call__(self, delay: float) -> None:
+        """Record the delay, and cancel on the ``stop_after`` call.
+
+        Args:
+            delay: The requested delay in seconds.
+
+        Raises:
+            CancelledError: On the ``stop_after`` call.
+        """
+        self.delays.append(delay)
+        if len(self.delays) >= self.stop_after:
+            raise asyncio.CancelledError
