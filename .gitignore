@@ -2,6 +2,7 @@
 profile/
 sources*.yaml
 .env
+compose.override.yaml
 
 # Tooling
 .venv/

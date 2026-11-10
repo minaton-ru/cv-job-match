@@ -1,0 +1,14 @@
+# Private data and secrets: mounted or passed at run time, never baked into the image
+.env
+profile/
+sources*.yaml
+
+.git/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+tests/
+docs/
+*.log
+*.log.*

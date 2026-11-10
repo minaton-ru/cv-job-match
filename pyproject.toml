@@ -5,6 +5,7 @@ description = "Watches corporate careers sites for Vacancies and tailors applica
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "aiogram>=3.31",
     "alembic>=1.20.1",
     "asyncpg>=0.32.0",
     "beautifulsoup4>=4.15.0",
@@ -12,7 +13,7 @@ dependencies = [
     "langchain-core>=1.7.3",
     "langchain-openai>=1.7.3",
     "markdown-pdf>=1.13.3",
-    "pydantic>=2.14.1",
+    "pydantic>=2.13,<2.14",
     "pydantic-settings>=2.16.1",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.1.6",

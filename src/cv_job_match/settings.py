@@ -41,6 +41,7 @@ class Settings(BaseSettings):
             ``None`` for the OpenAI API itself.
         llm_model: Chat model that makes Assessments.
         llm_api_key: API key of the AI provider.
+        telegram_bot_token: Token of the Telegram bot.
         telegram_chat_id: The only chat the bot answers, or ``None`` to answer none.
         database_url: SQLAlchemy URL of the PostgreSQL database, such as
             ``postgresql+asyncpg://user:password@host/name``.
@@ -55,5 +56,6 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None
     llm_model: str | None = None
     llm_api_key: SecretStr | None = None
+    telegram_bot_token: SecretStr | None = None
     telegram_chat_id: int | None = None
     database_url: SecretStr | None = None

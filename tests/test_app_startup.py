@@ -4,8 +4,10 @@ from pathlib import Path
 import pytest
 
 from cv_job_match.app import Repositories, build_app
-from cv_job_match.exceptions import SourcesConfigError
+from cv_job_match.exceptions import SourcesConfigError, TelegramSetupError
+from cv_job_match.postgres import PostgresProfileRepository, PostgresRepository
 from cv_job_match.settings import Settings
+from cv_job_match.telegram import TelegramNotifier
 from tests.fakes import FakeClock, FakeDependency, FakeDiscoveryRepository
 from tests.sources_files import write_sources_yaml
 
@@ -251,3 +253,33 @@ def test_build_app_uses_default_interval_when_interval_is_null(tmp_path: Path) -
     app = build_app(build_settings(tmp_path, text))
 
     assert app.sources.resolve_interval(app.sources.sources[0]) == timedelta(days=1)
+
+
+def test_build_app_wires_production_dependencies_from_settings(tmp_path: Path) -> None:
+    settings = Settings(
+        sources_path=write_sources_yaml(tmp_path, VALID_SOURCES_YAML),
+        database_url="postgresql+asyncpg://user:password@localhost:5432/name",
+        telegram_bot_token="123456:test-token",
+        telegram_chat_id=42,
+        _env_file=None,
+    )
+
+    app = build_app(settings)
+
+    assert app.repos is not None
+    assert isinstance(app.repos.discovery, PostgresRepository)
+    assert isinstance(app.repos.profile, PostgresProfileRepository)
+    assert isinstance(app.notifier, TelegramNotifier)
+    assert app.notifier.chat_id == 42
+
+
+def test_build_app_rejects_malformed_bot_token(tmp_path: Path) -> None:
+    settings = Settings(
+        sources_path=write_sources_yaml(tmp_path, VALID_SOURCES_YAML),
+        telegram_bot_token="not-a-token",
+        telegram_chat_id=42,
+        _env_file=None,
+    )
+
+    with pytest.raises(TelegramSetupError, match="CV_JOB_MATCH_TELEGRAM_BOT_TOKEN"):
+        build_app(settings)

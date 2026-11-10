@@ -6,6 +6,7 @@ package logger configured here.
 """
 
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -49,3 +50,18 @@ def configure_file_logging(
     package_logger.setLevel(log_level)
     logger.info("Logging to %s at level %s", log_path, log_level)
     return file_handler
+
+
+def configure_console_logging() -> logging.StreamHandler:
+    """Send the logs of the service to stderr too, at the level of the file log.
+
+    The service calls this so that its logs appear in the container output.
+
+    Returns:
+        The console handler attached to the package logger.
+    """
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logging.getLogger(PACKAGE_LOGGER_NAME).addHandler(console_handler)
+    logger.info("Logging to stderr")
+    return console_handler

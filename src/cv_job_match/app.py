@@ -21,10 +21,16 @@ from cv_job_match.discovery import (
 from cv_job_match.evaluation import Assessment, Evaluation, EvaluationRepository, Notifier
 from cv_job_match.exceptions import DependencyNotConfiguredError
 from cv_job_match.http_client import HttpClient, create_polite_client
+from cv_job_match.postgres import (
+    PostgresProfileRepository,
+    PostgresRepository,
+    create_database_engine,
+)
 from cv_job_match.profile import CandidateProfile, ProfileRepository, load_profile
 from cv_job_match.settings import Settings
 from cv_job_match.sources import SourcesConfig, Technique, load_sources_config
 from cv_job_match.tailoring import Tailoring, TailoringRepository
+from cv_job_match.telegram import create_telegram_notifier
 from cv_job_match.utils.clock import Clock, SystemClock
 
 logger = logging.getLogger(__name__)
@@ -68,9 +74,9 @@ class TickReport:
 class App:
     """The wired application.
 
-    ``build_app`` wires no production ``repos`` (the PostgreSQL ones exist
-    but are not wired yet) or ``notifier``, so they stay ``None`` in production, and ``llm`` is
-    ``None`` until its model and API key are set. Without ``repos``,
+    ``build_app`` wires the PostgreSQL ``repos`` once the database URL is set,
+    the Telegram ``notifier`` once the bot token and chat ID are set, and
+    ``llm`` once its model and API key are set; until then each is ``None``. Without ``repos``,
     ``Discovery.run_due`` raises and only ``check_source`` works, and saving a
     Profile snapshot raises too. Evaluation raises without its repository,
     ``llm`` or ``notifier``, and so does the daily tick without ``notifier``.
@@ -164,7 +170,9 @@ def build_app(
     """Build the application from settings.
 
     Production passes only ``settings``. Tests pass a fake for any dependency
-    they need to control.
+    they need to control. Without ``repos``, the PostgreSQL repositories are
+    wired when the database URL is set, and without ``notifier``, the Telegram
+    notifier is wired when the bot token and the chat ID are set.
 
     Args:
         settings: Settings for this run.
@@ -181,6 +189,7 @@ def build_app(
         SourcesConfigError: If the Sources config is missing or invalid.
         ProfileError: If the Profile is missing or invalid.
         HttpClientSetupError: If the extra root certificate cannot be loaded.
+        TelegramSetupError: If the Telegram bot token is malformed.
     """
     logger.info("Building app")
     sources = load_sources_config(settings.sources_path)
@@ -188,6 +197,8 @@ def build_app(
     http = http or create_polite_client(settings, sources)
     clock = clock or SystemClock()
     llm = llm if llm is not None else create_chat_model(settings)
+    repos = repos or create_postgres_repositories(settings)
+    notifier = notifier or create_telegram_notifier(settings, sources)
     adapters: dict[Technique, TechniqueAdapter] = {
         "json_endpoint": JsonEndpointAdapter(http),
         "html_css": HtmlCssAdapter(http),
@@ -212,4 +223,27 @@ def build_app(
         decisions=decisions,
         tailoring=tailoring,
         bot=DecisionBot(decisions, tailoring, settings.telegram_chat_id),
+    )
+
+
+def create_postgres_repositories(settings: Settings) -> Repositories | None:
+    """Create the PostgreSQL repositories, which share one engine.
+
+    Args:
+        settings: Settings for this run.
+
+    Returns:
+        The repositories, or ``None`` when the database URL is not set.
+    """
+    if settings.database_url is None:
+        logger.info("Database is not configured, so the app has no repositories")
+        return None
+    engine = create_database_engine(settings.database_url.get_secret_value())
+    repository = PostgresRepository(engine)
+    return Repositories(
+        discovery=repository,
+        profile=PostgresProfileRepository(engine),
+        evaluation=repository,
+        decision=repository,
+        tailoring=repository,
     )

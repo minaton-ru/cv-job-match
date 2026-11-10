@@ -51,3 +51,11 @@ class StatusTransitionError(ValueError):
 
 class InvalidTailoringError(ValueError):
     """Raised when the chat model returns no valid Application Pack."""
+
+
+class TelegramSetupError(ValueError):
+    """Raised when the Telegram bot cannot be set up from the settings."""
+
+
+class MissingSecretError(ValueError):
+    """Raised when the service starts without a secret it needs."""

@@ -96,3 +96,15 @@ DB_NAMING_CONVENTION = {
 }
 MIGRATIONS_FOLDER_NAME = "migrations"
 MIGRATION_TARGET = "head"
+
+VACANCY_CALLBACK_PREFIX = "v"
+LIST_COMMAND = "list"
+UNKNOWN_BUTTON_REPLY = "This button's Source is no longer in the config."
+SCHEDULER_INTERVAL_S = 3600.0
+REQUIRED_SERVICE_SETTINGS = (
+    "telegram_bot_token",
+    "telegram_chat_id",
+    "llm_model",
+    "llm_api_key",
+    "database_url",
+)
