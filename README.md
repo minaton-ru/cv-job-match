@@ -121,20 +121,37 @@ is checked when the Source is checked. Requests are GET, and one page is read.
       params: {q: python}                     # optional query parameters
       list_selector: ul.jobs                  # required; the element that holds the list
       item_selector: li.job                   # required; each item inside that element
-      id_field: {selector: a, attribute: data-id}   # required; where the site's own ID is
+      id_field:                               # required; where the site's own ID is
+        selector: a                           # the element inside the item
+        attribute: href                       # optional; read this attribute, not the text
+        pattern: '/jobs/(\d+)/'               # optional; keep only this part of the value
       fields:                                 # optional; field name -> where its value is
-        title: h3                             # plain selector: the element's text
-        url: {selector: a, attribute: href}   # selector plus attribute: the attribute's value
+        title: h3                             # short form: only a selector, reads the text
+        url: {selector: a, attribute: href}   # same keys as id_field
     detail:                                   # optional; without it, no description is fetched
       url: https://careers.example.com/jobs/{id}   # {id} is the Vacancy's ID
       params: {lang: en}                      # optional; {id} is replaced in values too
       description_selectors: [div.summary, div.duties]  # every match, joined by blank lines
 ```
 
-A value is read from the first element its `selector` matches inside the item; an empty or
-missing `selector` means the item itself. Text has its inner whitespace collapsed. A page where
-`list_selector` matches nothing, including a malformed or non-HTML page, makes the list fetch
-fail; a list element with no items is an empty list.
+`id_field` and each entry of `fields` say where one value is, with the same three keys:
+
+| Key         | Meaning                                                                        |
+| ----------- | ------------------------------------------------------------------------------ |
+| `selector`  | CSS selector inside the item; the first match is used. Empty or missing means the item itself. |
+| `attribute` | Attribute to read. Without it, the element's text is read, with its inner whitespace collapsed. |
+| `pattern`   | Regular expression with at least one capture group. The first group becomes the value. |
+
+Plain text instead of the keys is a `selector`, so `title: h3` is the same as
+`title: {selector: h3}`.
+
+Use `pattern` when the value holds more than is needed, most often when the site's own ID is only
+inside a link. In the example above, the link `/en/jobs/42/` gives the ID `42`, and the detail
+page is requested at `https://careers.example.com/jobs/42`. A value the pattern does not match is
+read as no value, which for `id_field` makes the list fetch fail.
+
+A page where `list_selector` matches nothing, including a malformed or non-HTML page, makes the
+list fetch fail; a list element with no items is an empty list.
 
 ### `embedded_state` options
 

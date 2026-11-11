@@ -1,9 +1,11 @@
 """Technique adapter for Sources whose list is server-side HTML read with CSS selectors."""
 
 import logging
+import re
+from typing import Annotated
 
 from bs4 import Tag
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from cv_job_match.adapters.common import (
     CssSelector,
@@ -22,6 +24,33 @@ from cv_job_match.sources import RequiredText, SourceConfig
 logger = logging.getLogger(__name__)
 
 
+def check_value_pattern(pattern: str) -> str:
+    """Reject a value pattern that cannot pick a part of a value.
+
+    Args:
+        pattern: Regular expression from the config.
+
+    Returns:
+        The pattern unchanged.
+
+    Raises:
+        ValueError: If the pattern is not a valid regular expression, or has
+            no capture group.
+    """
+    try:
+        group_count = re.compile(pattern).groups
+    except re.error as error:
+        logger.warning("Rejected value pattern %r: %s", pattern, error)
+        raise ValueError(f"invalid regular expression {pattern!r}") from error
+    if group_count == 0:
+        logger.warning("Rejected value pattern %r: no capture group", pattern)
+        raise ValueError(f"pattern {pattern!r} must have a capture group")
+    return pattern
+
+
+ValuePattern = Annotated[RequiredText, AfterValidator(check_value_pattern)]
+
+
 class SelectedValue(BaseModel):
     """Where a value is inside a list item.
 
@@ -31,12 +60,15 @@ class SelectedValue(BaseModel):
         selector: CSS selector of the element inside the item; empty for the
             item itself. The first match is used.
         attribute: Attribute to read, or ``None`` for the element's text.
+        pattern: Regular expression searched in the read value; its first
+            capture group becomes the value. ``None`` keeps the whole value.
     """
 
     model_config = ConfigDict(frozen=True)
 
     selector: CssSelector = ""
     attribute: RequiredText | None = None
+    pattern: ValuePattern | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -195,16 +227,26 @@ def read_selected_value(item: Tag, selected: SelectedValue) -> str | None:
         selected: Where the value is.
 
     Returns:
-        The attribute value or the text with whitespace collapsed, or ``None``
-        when the element or attribute is missing or the value is blank.
+        The attribute value or the text with whitespace collapsed, cut down to
+        the first group of ``pattern`` if there is one. ``None`` when the
+        element or attribute is missing, the value is blank, or the pattern
+        does not match.
     """
     element = item.select_one(selected.selector) if selected.selector else item
     if element is None:
         return None
     if selected.attribute is None:
-        return normalize_field_value(" ".join(element.get_text(" ").split()))
-    value = element.get(selected.attribute)
-    return normalize_field_value(" ".join(value) if isinstance(value, list) else value)
+        raw_value = " ".join(element.get_text(" ").split())
+    else:
+        attribute_value = element.get(selected.attribute)
+        raw_value = (
+            " ".join(attribute_value) if isinstance(attribute_value, list) else attribute_value
+        )
+    value = normalize_field_value(raw_value)
+    if value is None or selected.pattern is None:
+        return value
+    match = re.search(selected.pattern, value)
+    return normalize_field_value(match.group(1)) if match else None
 
 
 def describe_selected_value(selected: SelectedValue) -> str:
@@ -214,7 +256,9 @@ def describe_selected_value(selected: SelectedValue) -> str:
         selected: Where the value is.
 
     Returns:
-        Text such as ``'a' attribute 'data-id'`` or ``the item's text``.
+        Text such as ``'a' attribute 'data-id'`` or ``the item text``, with
+        the pattern added when there is one.
     """
     place = repr(selected.selector) if selected.selector else "the item"
-    return f"{place} attribute {selected.attribute!r}" if selected.attribute else f"{place} text"
+    value = f"{place} attribute {selected.attribute!r}" if selected.attribute else f"{place} text"
+    return f"{value} matching {selected.pattern!r}" if selected.pattern else value
