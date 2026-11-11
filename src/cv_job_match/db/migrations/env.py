@@ -6,8 +6,8 @@ import logging
 from alembic import context
 from sqlalchemy.engine import Connection
 
-from cv_job_match.db_schema import metadata
-from cv_job_match.postgres import create_database_engine, read_database_url
+from cv_job_match.db.postgres import create_database_engine, read_database_url
+from cv_job_match.db.schema import metadata
 
 logger = logging.getLogger(__name__)
 

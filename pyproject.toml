@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cv-job-match = "cv_job_match.utils.cli:start_cli"
+cv-job-match = "cv_job_match.cli:start_cli"
 
 [build-system]
 requires = ["hatchling"]

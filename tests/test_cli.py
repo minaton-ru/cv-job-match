@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from cv_job_match.app import App, build_app
+from cv_job_match.cli import run_cli
 from cv_job_match.http_client import HttpResponse
 from cv_job_match.settings import Settings
-from cv_job_match.utils.cli import run_cli
 from tests.fakes import FakeHttpClient, build_json_response
 from tests.sources_files import write_sources_yaml
 

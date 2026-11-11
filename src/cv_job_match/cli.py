@@ -21,6 +21,7 @@ from cv_job_match.constants import (
     SUSPECT_RUN_EXIT_CODE,
     USAGE_ERROR_EXIT_CODE,
 )
+from cv_job_match.db.postgres import migrate_database
 from cv_job_match.discovery import RunSummary
 from cv_job_match.exceptions import (
     HttpClientSetupError,
@@ -31,7 +32,6 @@ from cv_job_match.exceptions import (
     UnknownSourceError,
     UnsupportedTechniqueError,
 )
-from cv_job_match.postgres import migrate_database
 from cv_job_match.service import check_required_secrets, run_service
 from cv_job_match.settings import Settings
 from cv_job_match.utils.logger import configure_console_logging, configure_file_logging

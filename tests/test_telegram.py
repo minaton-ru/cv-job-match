@@ -1,8 +1,8 @@
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 
+from cv_job_match.bot.telegram import TelegramNotifier, VacancyCallback, parse_vacancy_callback
 from cv_job_match.evaluation import VacancyKey, build_decision_buttons
 from cv_job_match.sources import SourcesConfig
-from cv_job_match.telegram import TelegramNotifier, VacancyCallback, parse_vacancy_callback
 from tests.fakes import FakeTelegramBot
 
 CHAT_ID = 42

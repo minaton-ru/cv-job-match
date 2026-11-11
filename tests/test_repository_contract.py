@@ -11,7 +11,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from cv_job_match.app import Repositories
-from cv_job_match.db_schema import metadata
+from cv_job_match.db.postgres import (
+    PostgresProfileRepository,
+    PostgresRepository,
+    migrate_database,
+)
+from cv_job_match.db.schema import metadata
 from cv_job_match.decisions import AssessedVacancy
 from cv_job_match.discovery import KnownVacancy, NewVacancy, Revision, RunRecord, RunStatus
 from cv_job_match.evaluation import (
@@ -22,11 +27,6 @@ from cv_job_match.evaluation import (
     WaitingVacancy,
 )
 from cv_job_match.exceptions import VacancyNotFoundError
-from cv_job_match.postgres import (
-    PostgresProfileRepository,
-    PostgresRepository,
-    migrate_database,
-)
 from cv_job_match.profile import load_profile
 from cv_job_match.tailoring import ApplicationPack, ShortlistedVacancy
 from tests.fakes import FakeDiscoveryRepository, FakeProfileRepository
