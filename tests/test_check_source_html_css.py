@@ -85,6 +85,49 @@ async def test_check_source_reads_html_css_id_from_item_itself(tmp_path: Path) -
     assert (summary.previews[0].vacancy_id, summary.previews[0].title) == ("R-9", "QA")
 
 
+PATTERN_LIST_BLOCK = (
+    f"{{url: '{LIST_URL}', list_selector: ul.jobs, item_selector: li.job, "
+    "id_field: {selector: a, attribute: href, pattern: '/jobs/([^/]+)/?$'}, "
+    "fields: {title: {selector: h3, pattern: '^(.*?) \\('}}}"
+)
+
+
+async def test_check_source_cuts_html_css_values_with_pattern(tmp_path: Path) -> None:
+    page = build_list_page(
+        '<li class="job"><h3>Backend Engineer (remote)</h3><a href="/en/jobs/B-1/">Open</a></li>',
+        '<li class="job"><h3>QA</h3><a href="/en/jobs/B-2/">Open</a></li>',
+    )
+    text = build_sources_yaml(
+        PATTERN_LIST_BLOCK, f"{{url: '{DETAIL_URL}/{{id}}/', description_selectors: [p]}}"
+    )
+    responses = {
+        LIST_URL: build_html_response(page),
+        f"{DETAIL_URL}/B-1/": build_html_response("<p>Build APIs.</p>"),
+        f"{DETAIL_URL}/B-2/": build_html_response("<p>Test APIs.</p>"),
+    }
+    app, http = build_checked_app(tmp_path, responses, text)
+
+    summary = await app.discovery.check_source("beta-html")
+
+    assert [(p.vacancy_id, p.title) for p in summary.previews] == [
+        ("B-1", "Backend Engineer"),
+        ("B-2", None),
+    ]
+    assert http.requests[1].url == f"{DETAIL_URL}/B-1/"
+
+
+async def test_check_source_reports_html_css_id_not_matching_pattern(tmp_path: Path) -> None:
+    page = build_list_page('<li class="job"><h3>Backend</h3><a href="/news/7/">Open</a></li>')
+    text = build_sources_yaml(PATTERN_LIST_BLOCK)
+    app, _ = build_checked_app(tmp_path, {LIST_URL: build_html_response(page)}, text)
+
+    summary = await app.discovery.check_source("beta-html")
+
+    assert summary.found_count == 0
+    assert summary.suspect_reason is not None
+    assert "list item has no ID at 'a' attribute 'href' matching" in summary.suspect_reason
+
+
 async def test_check_source_counts_empty_html_css_list(tmp_path: Path) -> None:
     app, _ = build_checked_app(tmp_path, {LIST_URL: build_html_response(build_list_page())})
 
@@ -254,6 +297,18 @@ ITEM_OPTIONS = "list_selector: ul.jobs, item_selector: li, id_field: a"
             r"list\.id_field\.attribute: must not be blank",
         ),
         (
+            f"{{url: '{LIST_URL}', list_selector: ul, item_selector: li, "
+            "id_field: {selector: a, pattern: '/jobs/(\\d+'}}",
+            "",
+            r"list\.id_field\.pattern: invalid regular expression",
+        ),
+        (
+            f"{{url: '{LIST_URL}', list_selector: ul, item_selector: li, "
+            "id_field: {selector: a, pattern: '/jobs/\\d+'}}",
+            "",
+            r"list\.id_field\.pattern: pattern '/jobs/\\\\d\+' must have a capture group",
+        ),
+        (
             f"{{url: '{LIST_URL}', {ITEM_OPTIONS}}}",
             f"{{url: '{DETAIL_URL}', params: {{lang: en}}, description_selectors: [p]}}",
             r"detail: \{id\} must appear in url or params",
@@ -273,6 +328,8 @@ ITEM_OPTIONS = "list_selector: ul.jobs, item_selector: li, id_field: a"
         "pseudo-element-selector",
         "invalid-field-selector",
         "blank-attribute",
+        "invalid-pattern",
+        "pattern-without-group",
         "detail-without-id",
         "no-description-selectors",
     ],
