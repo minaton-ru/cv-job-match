@@ -317,7 +317,7 @@ again, so a Dismissed or Applied Vacancy sends no message after a Revision or re
 its score, verdict and status, or says there are none yet.
 
 Decisions need a Decision repository. In Telegram, the handlers are wired to `/list` and to the
-Vacancy buttons by `create_dispatcher` in `src/cv_job_match/telegram.py`. Telegram allows only
+Vacancy buttons by `create_dispatcher` in `src/cv_job_match/bot/telegram.py`. Telegram allows only
 64 bytes of button data, so a button names the Vacancy's Company by the id of the Company's first
 Source in the config. A button whose Source has since been removed from the config replies that
 it is no longer known.
@@ -352,7 +352,7 @@ every started Tailoring.
 ### Storage
 
 Everything is stored in PostgreSQL through `PostgresRepository` (Discovery, Evaluation, Decision
-and Tailoring) and `PostgresProfileRepository` in `src/cv_job_match/postgres.py`, which share one
+and Tailoring) and `PostgresProfileRepository` in `src/cv_job_match/db/postgres.py`, which share one
 engine from `create_database_engine(url)`. The schema holds Companies and Sources (mirrored from
 the config by name and ID on every saved Scrape Run), Vacancies (one per Company and site ID),
 Scrape Runs with the IDs each one listed, Revisions, Profile snapshots, Assessments, Pre-filter
@@ -362,7 +362,7 @@ A Scrape Run is saved in one transaction: when any change fails, such as a Revis
 Vacancy (`VacancyNotFoundError`), nothing of the run is saved. Saving an outcome, a status or an
 Application Pack for an unknown Vacancy raises `VacancyNotFoundError` too.
 
-Migrations are Alembic scripts in `src/cv_job_match/migrations/`. To create or update the schema:
+Migrations are Alembic scripts in `src/cv_job_match/db/migrations/`. To create or update the schema:
 
 ```sh
 CV_JOB_MATCH_DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/cv_job_match \
@@ -455,7 +455,7 @@ point it at a throwaway one, for example:
 
 ```sh
 docker run -d --rm --name cv-job-match-test-db -e POSTGRES_PASSWORD=test \
-    -e POSTGRES_DB=cv_job_match_test -p 55432:5432 postgres:17
+    -e POSTGRES_DB=cv_job_match_test -p 55432:5432 postgres:18-alpine
 CV_JOB_MATCH_TEST_DATABASE_URL=postgresql+asyncpg://postgres:test@localhost:55432/cv_job_match_test \
     uv run pytest -q
 uv run pytest -q -m postgres   # only the PostgreSQL contract tests
@@ -470,20 +470,20 @@ uv run pytest -q -m postgres   # only the PostgreSQL contract tests
 | `src/cv_job_match/profile.py`        | `load_profile`, `CandidateProfile` and the `ProfileRepository` interface |
 | `src/cv_job_match/evaluation.py`     | `Evaluation` (`evaluate_waiting`, `evaluate_vacancy`), the Assessment schema, the repository and `Notifier` interfaces, and `DecisionButton` |
 | `src/cv_job_match/decisions.py`      | `Decisions` (status changes and recent Assessed Vacancies) and the `DecisionRepository` interface |
-| `src/cv_job_match/bot.py`            | `DecisionBot`, the chat handlers for buttons and `/list` |
+| `src/cv_job_match/bot/handlers.py`   | `DecisionBot`, the chat handlers for buttons and `/list` |
 | `src/cv_job_match/tailoring.py`      | `Tailoring` (`start_tailoring`, `tailor_application`), the Application Pack metadata, the PDF template rendering and the `TailoringRepository` interface |
 | `src/cv_job_match/prefilter.py`      | `find_prefilter_reason`, the Pre-filter keyword rules |
-| `src/cv_job_match/postgres.py`       | PostgreSQL repositories, `create_database_engine` and `migrate_database` |
-| `src/cv_job_match/db_schema.py`      | The PostgreSQL schema as SQLAlchemy tables        |
-| `src/cv_job_match/migrations/`       | Alembic migrations; `alembic.ini` is at the root  |
-| `src/cv_job_match/telegram.py`       | `TelegramNotifier`, the Vacancy button data and `create_dispatcher` (aiogram) |
+| `src/cv_job_match/db/postgres.py`    | PostgreSQL repositories, `create_database_engine` and `migrate_database` |
+| `src/cv_job_match/db/schema.py`      | The PostgreSQL schema as SQLAlchemy tables        |
+| `src/cv_job_match/db/migrations/`    | Alembic migrations; `alembic.ini` is at the root  |
+| `src/cv_job_match/bot/telegram.py`   | `TelegramNotifier`, the Vacancy button data and `create_dispatcher` (aiogram) |
 | `src/cv_job_match/service.py`        | `serve`'s secrets check, scheduler and `run_service` |
 | `src/cv_job_match/chat_model.py`     | `create_chat_model` from the `CV_JOB_MATCH_LLM_*` settings |
 | `src/cv_job_match/adapters/`         | Technique adapters, wired by name in `build_app`  |
 | `src/cv_job_match/http_client.py`    | `HttpClient` seam and `PoliteHttpClient`          |
 | `src/cv_job_match/exceptions.py`     | Every custom exception                            |
 | `src/cv_job_match/constants.py`      | Every module-level constant                       |
-| `src/cv_job_match/utils/cli.py`      | CLI; register new commands in `create_parser`     |
+| `src/cv_job_match/cli.py`            | CLI; register new commands in `create_parser`     |
 | `src/cv_job_match/utils/clock.py`    | `Clock` interface and `SystemClock`               |
 | `src/cv_job_match/utils/logger.py`   | `configure_file_logging`, called once at startup  |
 

@@ -4,10 +4,10 @@ from pathlib import Path
 import pytest
 
 from cv_job_match.app import Repositories, build_app
+from cv_job_match.bot.telegram import TelegramNotifier
+from cv_job_match.db.postgres import PostgresProfileRepository, PostgresRepository
 from cv_job_match.exceptions import SourcesConfigError, TelegramSetupError
-from cv_job_match.postgres import PostgresProfileRepository, PostgresRepository
 from cv_job_match.settings import Settings
-from cv_job_match.telegram import TelegramNotifier
 from tests.fakes import FakeClock, FakeDependency, FakeDiscoveryRepository
 from tests.sources_files import write_sources_yaml
 

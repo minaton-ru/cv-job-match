@@ -8,10 +8,10 @@ from aiogram import Bot
 from pydantic import SecretStr
 
 from cv_job_match.app import App
+from cv_job_match.bot.telegram import TelegramNotifier, create_dispatcher
 from cv_job_match.constants import REQUIRED_SERVICE_SETTINGS, SCHEDULER_INTERVAL_S
 from cv_job_match.exceptions import DependencyNotConfiguredError, MissingSecretError
 from cv_job_match.settings import Settings
-from cv_job_match.telegram import TelegramNotifier, create_dispatcher
 
 logger = logging.getLogger(__name__)
 

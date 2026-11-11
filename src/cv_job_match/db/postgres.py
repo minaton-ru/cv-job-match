@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import JSONB, distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from cv_job_match.constants import MIGRATION_TARGET, MIGRATIONS_FOLDER_NAME
-from cv_job_match.db_schema import (
+from cv_job_match.db.schema import (
     application_pack_table,
     assessment_table,
     company_table,

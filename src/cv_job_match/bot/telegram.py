@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 from aiogram.utils.token import TokenValidationError
 
-from cv_job_match.bot import DecisionBot
+from cv_job_match.bot.handlers import DecisionBot
 from cv_job_match.constants import LIST_COMMAND, UNKNOWN_BUTTON_REPLY, VACANCY_CALLBACK_PREFIX
 from cv_job_match.evaluation import Decision, DecisionButton, VacancyKey
 from cv_job_match.exceptions import TelegramSetupError, UnknownSourceError

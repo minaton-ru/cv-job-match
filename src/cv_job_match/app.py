@@ -9,8 +9,14 @@ from cv_job_match.adapters.embedded_state import EmbeddedStateAdapter
 from cv_job_match.adapters.html_css import HtmlCssAdapter
 from cv_job_match.adapters.json_endpoint import JsonEndpointAdapter
 from cv_job_match.alerts import send_suspect_run_alerts
-from cv_job_match.bot import DecisionBot
+from cv_job_match.bot.handlers import DecisionBot
+from cv_job_match.bot.telegram import create_telegram_notifier
 from cv_job_match.chat_model import create_chat_model
+from cv_job_match.db.postgres import (
+    PostgresProfileRepository,
+    PostgresRepository,
+    create_database_engine,
+)
 from cv_job_match.decisions import DecisionRepository, Decisions
 from cv_job_match.discovery import (
     Discovery,
@@ -21,16 +27,10 @@ from cv_job_match.discovery import (
 from cv_job_match.evaluation import Assessment, Evaluation, EvaluationRepository, Notifier
 from cv_job_match.exceptions import DependencyNotConfiguredError
 from cv_job_match.http_client import HttpClient, create_polite_client
-from cv_job_match.postgres import (
-    PostgresProfileRepository,
-    PostgresRepository,
-    create_database_engine,
-)
 from cv_job_match.profile import CandidateProfile, ProfileRepository, load_profile
 from cv_job_match.settings import Settings
 from cv_job_match.sources import SourcesConfig, Technique, load_sources_config
 from cv_job_match.tailoring import Tailoring, TailoringRepository
-from cv_job_match.telegram import create_telegram_notifier
 from cv_job_match.utils.clock import Clock, SystemClock
 
 logger = logging.getLogger(__name__)
